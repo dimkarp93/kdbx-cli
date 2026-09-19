@@ -20,40 +20,43 @@
 
 ## Назначение
 
-`kdbx-env` — обёртка, запускающая команду с секретами из `.kdbx`-хранилища, подставленными в окружение. Секреты не попадают в историю shell и не лежат на диске в plaintext. Чтение `.kdbx` — через внешнюю `keepassxc-cli` (своего крипто нет).
+`kdbx-cli` — обёртка, запускающая команду с секретами из `.kdbx`-хранилища. Каналов доставки четыре: переменные окружения (`secrets`), stdin команды (`stdin`), файл через `memfd` + `/dev/fd/N` (`files`) и askpass-хелпер (`askpass`). Секреты не попадают в историю shell, в argv и на диск в plaintext. Чтение `.kdbx` — через внешнюю `keepassxc-cli` (своего крипто нет).
 
 ```
-kdbx-env [--config <path>] [--key-store <path>] [--secrets=name:env,...] [--dry-run] -- <cmd> [args...]
-kdbx-env config  [--config <path>] [-y]
-kdbx-env check   [--config <path>] [-y]
-kdbx-env show    [--config <path>]
-kdbx-env forget  [--config <path>]
+kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+         [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
+         [--askpass=name] [--dry-run] -- <cmd> [args...]
+kdbx-cli config  [--config <path>] [-y]
+kdbx-cli check   [--config <path>] [-y]
+kdbx-cli show    [--config <path>]
+kdbx-cli forget  [--config <path>]
 ```
 
-`--dry-run` печатает разрешённый план (конфиг, секция, маппинги, итоговая команда с плейсхолдерами `<secret from Title>`) и завершается, не читая хранилище и не запрашивая пароль.
+`--dry-run` печатает разрешённый план (конфиг, секция, маппинги, блоки stdin/files/askpass, итоговая команда с плейсхолдерами `<secret from Title>` и `<file with Title>`) и завершается, не читая хранилище и не запрашивая пароль.
 
-`config` после сохранения и `check` сверяют наличие `Title` в `.kdbx` (через `keepassxc-cli export`) и предлагают создать отсутствующий файл/записи (`-y` — без подтверждений). `check` агрегирует требуемые `Title` по файлам через `resolve` по всем секциям.
+`config` после сохранения и `check` сверяют наличие `Title` в `.kdbx` (через `keepassxc-cli export`) и предлагают создать отсутствующий файл/записи (`-y` — без подтверждений). `check` агрегирует требуемые `Title` по файлам через `resolve` по всем секциям и учитывает все четыре канала (`Resolved.AllTitles`).
 
 ## Конфиг и кэш
 
-Схема конфига — struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`. `config.Load` читает только эту схему (программа в разработке, обратной совместимости со старыми форматами нет).
+Схема конфига — struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string, Stdin []string, StdinKeepOpen bool, Files []string, Askpass string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files` заменяются целиком (порядок строк значим). `config.Load` читает только эту схему (программа в разработке, обратной совместимости со старыми форматами нет).
 
-Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` в OS-keyring через `github.com/zalando/go-keyring`. `domain.UnlockExport` — единая точка «достать пароль (кэш→prompt) + export»; `keyring.New(cfg.Cache)` строит политику. `kdbx-env forget` (`cmdForget`) чистит keyring для всех `.kdbx` конфига. keyring-обёртки (`keyringSet/Get/Delete`) — var'ы, стабятся в тестах. Деградирует без Secret Service (miss + warning, не падает).
+Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` в OS-keyring через `github.com/zalando/go-keyring`. `domain.UnlockExport` — единая точка «достать пароль (кэш→prompt) + export»; `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget`) чистит keyring для всех `.kdbx` конфига. keyring-обёртки (`keyringSet/Get/Delete`) — var'ы, стабятся в тестах. Деградирует без Secret Service (miss + warning, не падает).
 
 ## Структура
 
-Код разбит на пакеты под `internal/` (без циклов: `config`/`keepass`/`term` — листья; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term`; корневой `main → cmd`).
+Код разбит на пакеты под `internal/` (без циклов: `config`/`keepass`/`term`/`secretpipe` — листья; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term,secretpipe`; корневой `main → cmd`).
 
 - `main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
-- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`; `ExpandHome`, `DefaultPath` (`~/.config/kdbx-env/default`).
+- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`; `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine`, `Run` (вызов `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
-- `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_ENV_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
-- `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, тип `Resolved`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
+- `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
+- `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
+- `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
   - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`version`/run-режим), `usage`, `parseConfigArgs`.
-  - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag`, тип `runFlags`.
-  - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль → export → инжект env → запуск дочерней команды, проброс кода возврата.
+  - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag`, `splitTitles`, тип `runFlags` и его `overrides()`.
+  - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
   - `plan.go` — `printPlan` и хелперы dry-run (`describeSection`, `renderCommand`, `shellQuote`).
   - `commands.go` — `cmdConfig` (TTY → TUI, иначе `configFallback`; после сохранения — `ReconcileStores` для default), `cmdCheck`, `cmdForget`.
   - `tui.go` — Bubble Tea-модель настройки `default`: поле `key-store` с автодополнением пути (`refreshPathSuggestions`, `deleteLastPathSegment` на `alt+backspace`, раскрытие `~` на `tab`), построчный редактор маппингов с хоткеями (`a`/`e`/`d`/`↑↓`/`tab`/`ctrl+s`/`esc`) и легендой.
@@ -63,7 +66,7 @@ kdbx-env forget  [--config <path>]
 
 Зависит от `keepassxc-cli` в PATH. Go 1.26.1. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — `zalando/go-keyring` (godbus, без cgo). Сборка статическая (`CGO_ENABLED=0`).
 
-- `just build` — собрать бинарь `./kdbx-env` (версия из `versions.txt`).
+- `just build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
 - `just unit-test` — юнит-тесты (`go test ./...`).
 - `just e2e-test` — e2e (тег `e2e`, реально создаёт/читает `.kdbx` через `keepassxc-cli`).
 - `just test` — всё вместе.

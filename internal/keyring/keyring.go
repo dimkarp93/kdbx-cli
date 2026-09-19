@@ -8,11 +8,11 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
 
 const (
-	keyringService  = "kdbx-env"
+	keyringService  = "kdbx-cli"
 	defaultCacheTTL = 10 * time.Minute
 )
 

@@ -4,9 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
 
 func TestResolveMerge(t *testing.T) {
@@ -15,7 +16,7 @@ func TestResolveMerge(t *testing.T) {
 		"install": {Secrets: map[string]string{"NPM_TOKEN": "NPM_TOKEN", "SHARED": "OVERRIDE"}},
 	}}
 
-	r := Resolve(cfg, "install", "", map[string]string{})
+	r := Resolve(cfg, "install", Overrides{})
 	if r.KeyStore != "~/store.kdbx" {
 		t.Errorf("keyStore: got %q", r.KeyStore)
 	}
@@ -29,7 +30,7 @@ func TestResolveFlagsOverride(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/from-cfg", Secrets: map[string]string{"A": "A1"}},
 	}}
-	r := Resolve(cfg, "unknown-tool", "/from-flag", map[string]string{"A": "A2", "B": "B1"})
+	r := Resolve(cfg, "unknown-tool", Overrides{KeyStore: "/from-flag", Secrets: map[string]string{"A": "A2", "B": "B1"}})
 	if r.KeyStore != "/from-flag" {
 		t.Errorf("keyStore: got %q", r.KeyStore)
 	}
@@ -96,5 +97,61 @@ func TestBuildStoreViews(t *testing.T) {
 	}
 	if len(byPath[missing].Mappings) != 2 {
 		t.Errorf("deploy store mappings: %+v", byPath[missing].Mappings)
+	}
+}
+
+func TestResolveDeliveryModes(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: "/s", Stdin: []string{"D1"}, Files: []string{"F1"}, Askpass: "A1"},
+		"docker":  {Stdin: []string{"D2", "D3"}},
+	}}
+
+	r := Resolve(cfg, "docker", Overrides{})
+	if !reflect.DeepEqual(r.Stdin, []string{"D2", "D3"}) {
+		t.Errorf("stdin should be replaced, not merged: got %v", r.Stdin)
+	}
+	if !reflect.DeepEqual(r.Files, []string{"F1"}) {
+		t.Errorf("files: got %v", r.Files)
+	}
+	if r.Askpass != "A1" {
+		t.Errorf("askpass: got %q", r.Askpass)
+	}
+
+	r = Resolve(cfg, "docker", Overrides{Stdin: []string{"D4"}, StdinKeepOpen: true, Askpass: "A2"})
+	if !reflect.DeepEqual(r.Stdin, []string{"D4"}) {
+		t.Errorf("stdin override: got %v", r.Stdin)
+	}
+	if !r.StdinKeepOpen {
+		t.Error("stdinKeepOpen override was lost")
+	}
+	if r.Askpass != "A2" {
+		t.Errorf("askpass override: got %q", r.Askpass)
+	}
+}
+
+func TestAllTitlesDeduplicates(t *testing.T) {
+	r := Resolved{
+		Secrets: map[string]string{"T": "ENV"},
+		Stdin:   []string{"T", "S"},
+		Files:   []string{"S", "F"},
+		Askpass: "F",
+	}
+	got := append([]string{}, r.AllTitles()...)
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, []string{"F", "S", "T"}) {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestAggregateStoresCoversAllChannels(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: "/s"},
+		"docker":  {Stdin: []string{"D"}},
+		"restic":  {Files: []string{"F"}},
+		"ssh":     {Askpass: "A"},
+	}}
+	got := AggregateStores(cfg)["/s"]
+	if !reflect.DeepEqual(got, []string{"A", "D", "F"}) {
+		t.Errorf("got %v", got)
 	}
 }

@@ -1,4 +1,4 @@
-kdbx-env
+kdbx-cli
 *.kdbx
 tests/*
 !tests/.gitkeep

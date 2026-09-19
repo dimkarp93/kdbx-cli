@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/domain"
-	"github.com/dimkarp93/kdbx-env/internal/keyring"
-	"github.com/dimkarp93/kdbx-env/internal/term"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
 var openInKeePassXC = func(path string) error {
@@ -153,7 +153,7 @@ func (m showTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m showTUI) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("kdbx-env — config view"))
+	b.WriteString(titleStyle.Render("kdbx-cli — config view"))
 	b.WriteString("\n\n")
 	b.WriteString(labelStyle.Render("  config: ") + m.configPath + "\n")
 

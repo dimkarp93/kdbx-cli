@@ -19,8 +19,8 @@ build:
     c=$(git rev-parse --short HEAD 2>/dev/null || true)
     CGO_ENABLED=0 go build -trimpath \
         -ldflags="-s -w -X main.version=$v -X main.origin=$o -X main.upstream=$up -X main.commit=$c -X main.channel=local" \
-        -o kdbx-env .
-    echo "Built: ./kdbx-env (v$v)"
+        -o kdbx-cli .
+    echo "Built: ./kdbx-cli (v$v)"
 
 unit-test mask="":
     go test {{ if mask != "" { "-run " + mask } else { "" } }} ./...
@@ -29,8 +29,8 @@ e2e-test mask="": build
     #!/usr/bin/env sh
     set -e
     mkdir -p {{tests_dir}}/_root
-    KDBX_ENV_E2E_ROOT="$(pwd)/{{tests_dir}}/_root" \
-    KDBX_ENV_E2E_KEEP=0 \
+    KDBX_CLI_E2E_ROOT="$(pwd)/{{tests_dir}}/_root" \
+    KDBX_CLI_E2E_KEEP=0 \
     go test -tags=e2e {{ if mask != "" { "-run " + mask } else { "" } }} ./...; \
     status=$?; \
     rm -rf {{tests_dir}}/_root; \

@@ -3,9 +3,9 @@ package domain
 import (
 	"fmt"
 
-	"github.com/dimkarp93/kdbx-env/internal/keepass"
-	"github.com/dimkarp93/kdbx-env/internal/keyring"
-	"github.com/dimkarp93/kdbx-env/internal/term"
+	"github.com/dimkarp93/kdbx-cli/internal/keepass"
+	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
 func UnlockExport(keyStore string, cache keyring.Cache, prompt string) (string, string, error) {

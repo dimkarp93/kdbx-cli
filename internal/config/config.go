@@ -8,8 +8,12 @@ import (
 )
 
 type Section struct {
-	KeyStore string            `json:"key-store,omitempty"`
-	Secrets  map[string]string `json:"secrets,omitempty"`
+	KeyStore      string            `json:"key-store,omitempty"`
+	Secrets       map[string]string `json:"secrets,omitempty"`
+	Stdin         []string          `json:"stdin,omitempty"`
+	StdinKeepOpen bool              `json:"stdin-keep-open,omitempty"`
+	Files         []string          `json:"files,omitempty"`
+	Askpass       string            `json:"askpass,omitempty"`
 }
 
 type CacheConfig struct {

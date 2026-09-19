@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/keepass"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 )
 
 const testPassword = "test-pass-123"
@@ -22,13 +22,13 @@ const testPassword = "test-pass-123"
 var binaryPath string
 
 func TestMain(m *testing.M) {
-	root := os.Getenv("KDBX_ENV_E2E_ROOT")
+	root := os.Getenv("KDBX_CLI_E2E_ROOT")
 	if root == "" {
-		fmt.Fprintln(os.Stderr, "KDBX_ENV_E2E_ROOT is required for e2e tests")
+		fmt.Fprintln(os.Stderr, "KDBX_CLI_E2E_ROOT is required for e2e tests")
 		os.Exit(2)
 	}
 	if err := os.MkdirAll(root, 0755); err != nil {
-		fmt.Fprintln(os.Stderr, "cannot create KDBX_ENV_E2E_ROOT:", err)
+		fmt.Fprintln(os.Stderr, "cannot create KDBX_CLI_E2E_ROOT:", err)
 		os.Exit(2)
 	}
 	wd, err := os.Getwd()
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "getwd:", err)
 		os.Exit(2)
 	}
-	binaryPath = filepath.Join(wd, "kdbx-env")
+	binaryPath = filepath.Join(wd, "kdbx-cli")
 	if _, err := os.Stat(binaryPath); err != nil {
 		fmt.Fprintln(os.Stderr, "binary not found at", binaryPath, "— run `just build` first")
 		os.Exit(2)
@@ -56,15 +56,15 @@ type sandbox struct {
 
 func newSandbox(t *testing.T) *sandbox {
 	t.Helper()
-	root := os.Getenv("KDBX_ENV_E2E_ROOT")
-	keep := os.Getenv("KDBX_ENV_E2E_KEEP") == "1"
+	root := os.Getenv("KDBX_CLI_E2E_ROOT")
+	keep := os.Getenv("KDBX_CLI_E2E_KEEP") == "1"
 
 	dir := filepath.Join(root, t.Name())
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
 	home := filepath.Join(dir, "home")
-	if err := os.MkdirAll(filepath.Join(home, ".config", "kdbx-env"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".config", "kdbx-cli"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	sb := &sandbox{t: t, dir: dir, home: home}
@@ -114,7 +114,7 @@ func (s *sandbox) makeStore(rel string, entries map[string]string) string {
 func (s *sandbox) writeConfig(sections map[string]config.Section) {
 	s.t.Helper()
 	data, _ := json.MarshalIndent(config.Config{Sections: sections}, "", "  ")
-	path := filepath.Join(s.home, ".config", "kdbx-env", "default")
+	path := filepath.Join(s.home, ".config", "kdbx-cli", "default")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		s.t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func (s *sandbox) run(args ...string) cmdResult {
 	cmd.Dir = s.dir
 	cmd.Env = append(os.Environ(),
 		"HOME="+s.home,
-		"KDBX_ENV_PASSWORD="+testPassword,
+		"KDBX_CLI_PASSWORD="+testPassword,
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -334,7 +334,7 @@ func TestE2E_CheckAllPresent(t *testing.T) {
 func TestE2E_ConfigCreatesStoreAndSecrets(t *testing.T) {
 	sb := newSandbox(t)
 	store := filepath.Join(sb.home, "new", "store.kdbx")
-	cfgPath := filepath.Join(sb.home, ".config", "kdbx-env", "default")
+	cfgPath := filepath.Join(sb.home, ".config", "kdbx-cli", "default")
 
 	stdin := store + "\n" + "GITHUB_TOKEN:GH_TOKEN,API_KEY:API_KEY\n"
 	r := sb.runStdin(stdin, "config", "-y", "--config", cfgPath)
@@ -363,7 +363,7 @@ func (s *sandbox) runStdin(stdin string, args ...string) cmdResult {
 	s.t.Helper()
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = s.dir
-	cmd.Env = append(os.Environ(), "HOME="+s.home, "KDBX_ENV_PASSWORD="+testPassword)
+	cmd.Env = append(os.Environ(), "HOME="+s.home, "KDBX_CLI_PASSWORD="+testPassword)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -385,7 +385,7 @@ func TestE2E_WrongPassword(t *testing.T) {
 
 	cmd := exec.Command(binaryPath, "--", "sh", "-c", "echo nope")
 	cmd.Dir = sb.dir
-	cmd.Env = append(os.Environ(), "HOME="+sb.home, "KDBX_ENV_PASSWORD=wrong-password")
+	cmd.Env = append(os.Environ(), "HOME="+sb.home, "KDBX_CLI_PASSWORD=wrong-password")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -395,5 +395,125 @@ func TestE2E_WrongPassword(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "keepassxc-cli") {
 		t.Errorf("expected keepassxc-cli error in stderr:\n%s", stderr.String())
+	}
+}
+
+func TestE2E_StdinDelivery(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"REG_TOKEN": "tok_secret"})
+	sb.writeConfig(map[string]config.Section{
+		"default": {KeyStore: store, Stdin: []string{"REG_TOKEN", "REG_TOKEN"}},
+	})
+
+	r := sb.run("--", "sh", "-c", `read a; read b; printf "%s|%s" "$a" "$b"; cat`)
+	if r.exitCode != 0 {
+		t.Fatalf("exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	if r.stdout != "tok_secret|tok_secret" {
+		t.Errorf("stdout: got %q", r.stdout)
+	}
+}
+
+func TestE2E_StdinKeepOpen(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"PW": "pw_secret"})
+
+	r := sb.runStdin("rest-of-stdin\n",
+		"--key-store", store, "--stdin=PW", "--stdin-keep-open",
+		"--", "sh", "-c", `read a; read b; printf "%s|%s" "$a" "$b"`)
+	if r.exitCode != 0 {
+		t.Fatalf("exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	if r.stdout != "pw_secret|rest-of-stdin" {
+		t.Errorf("stdout: got %q", r.stdout)
+	}
+}
+
+func TestE2E_SecretFileDelivery(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"repo-pw": "file_secret"})
+
+	r := sb.run("--key-store", store, "--secret-file=repo-pw",
+		"--", "sh", "-c", `cat "$1"; cat "$1"`, "sh", "{{repo-pw}}")
+	if r.exitCode != 0 {
+		t.Fatalf("exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	if r.stdout != "file_secretfile_secret" {
+		t.Errorf("stdout: got %q", r.stdout)
+	}
+}
+
+func TestE2E_SecretFileMissingPlaceholder(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"repo-pw": "file_secret"})
+
+	r := sb.run("--key-store", store, "--secret-file=repo-pw", "--", "sh", "-c", "echo should-not-run")
+	if r.exitCode == 0 {
+		t.Fatalf("expected non-zero exit\nstdout:\n%s", r.stdout)
+	}
+	if strings.Contains(r.stdout, "should-not-run") {
+		t.Errorf("child ran despite the missing placeholder:\n%s", r.stdout)
+	}
+	if !strings.Contains(r.stderr, "{{repo-pw}}") {
+		t.Errorf("expected the placeholder in stderr:\n%s", r.stderr)
+	}
+}
+
+func TestE2E_AskpassDelivery(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"ssh-pw": "askpass_secret"})
+
+	r := sb.run("--key-store", store, "--askpass=ssh-pw",
+		"--", "sh", "-c", `"$SSH_ASKPASS" "Password:"; "$GIT_ASKPASS" "Password:"; printf %s "$SSH_ASKPASS_REQUIRE"`)
+	if r.exitCode != 0 {
+		t.Fatalf("exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	if r.stdout != "askpass_secret\naskpass_secret\nforce" {
+		t.Errorf("stdout: got %q", r.stdout)
+	}
+}
+
+func TestE2E_DryRunDeliveryModes(t *testing.T) {
+	sb := newSandbox(t)
+	sb.writeConfig(map[string]config.Section{
+		"default": {KeyStore: "~/missing-store.kdbx"},
+		"restic":  {Files: []string{"repo-pw"}, Askpass: "ssh-pw", Stdin: []string{"tok"}},
+	})
+
+	r := sb.runNoPassword("--dry-run", "--", "restic", "--password-file", "{{repo-pw}}")
+	if r.exitCode != 0 {
+		t.Fatalf("dry-run exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	for _, want := range []string{
+		"<secret from tok>",
+		"{{repo-pw}} ← repo-pw",
+		"Askpass:      ssh-pw",
+		"restic --password-file '<file with repo-pw>'",
+	} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("dry-run output missing %q:\n%s", want, r.stdout)
+		}
+	}
+}
+
+func TestE2E_CheckCoversAllChannels(t *testing.T) {
+	sb := newSandbox(t)
+	store := sb.makeStore("store.kdbx", map[string]string{"PRESENT": "v"})
+	sb.writeConfig(map[string]config.Section{
+		"default": {KeyStore: store, Secrets: map[string]string{"PRESENT": "PRESENT"}},
+		"docker":  {Stdin: []string{"REG_TOKEN"}},
+		"restic":  {Files: []string{"REPO_PW"}},
+		"ssh":     {Askpass: "SSH_PW"},
+	})
+
+	r := sb.run("check", "-y")
+	if r.exitCode != 0 {
+		t.Fatalf("check exit %d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	titles := sb.storeTitles(store)
+	for _, want := range []string{"REG_TOKEN", "REPO_PW", "SSH_PW"} {
+		if !titles[want] {
+			t.Errorf("%s was not added to the store, titles=%v", want, titles)
+		}
 	}
 }

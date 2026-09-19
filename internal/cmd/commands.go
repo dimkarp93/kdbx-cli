@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/domain"
-	"github.com/dimkarp93/kdbx-env/internal/keyring"
-	"github.com/dimkarp93/kdbx-env/internal/term"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
 func cmdConfig(path string, assumeYes bool) {

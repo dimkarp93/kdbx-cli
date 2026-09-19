@@ -83,15 +83,18 @@ func parseConfigArgs(cmd string, args []string) (string, bool) {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
-  kdbx-env [--config <path>] [--key-store <path>] [--secrets=name:env,...] [--dry-run] -- <cmd> [args...]
-  kdbx-env config [--config <path>] [-y]
-  kdbx-env check  [--config <path>] [-y]
-  kdbx-env show   [--config <path>]
-  kdbx-env forget [--config <path>]
-  kdbx-env version | --version | -v | --origin | --buildinfo
+  kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+           [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
+           [--askpass=name] [--dry-run] -- <cmd> [args...]
+  kdbx-cli config [--config <path>] [-y]
+  kdbx-cli check  [--config <path>] [-y]
+  kdbx-cli show   [--config <path>]
+  kdbx-cli forget [--config <path>]
+  kdbx-cli version | --version | -v | --origin | --buildinfo
 
-Runs <cmd> with secrets from a .kdbx key-store injected as environment variables.
-Secrets never touch your shell history or disk.
+Runs <cmd> with secrets from a .kdbx key-store delivered through environment
+variables, its stdin, a file or an askpass helper. Secrets never touch your
+shell history, the command line or the disk.
 
 Commands:
   config   Edit the default section interactively; then verify/create the
@@ -108,9 +111,23 @@ Password caching is opt-in via the config's "cached" section
 OS keyring (Secret Service). Disabled by default.
 
 Flags:
-  --config <path>          Config file (default: ~/.config/kdbx-env/default)
+  --config <path>          Config file (default: ~/.config/kdbx-cli/default)
   --key-store <path>       Path to the .kdbx file (overrides config)
   --secrets=name:env,...   Secret-to-env mapping (merged over config)
+  --stdin=name,...         Write these secrets to the command's stdin, one per
+                           line in the given order, then close it
+                           (docker login --password-stdin, gh auth login
+                           --with-token, vault login -)
+  --stdin-keep-open        Keep stdin open after the secrets and pass the rest
+                           of our own stdin through (sudo -S)
+  --secret-file=name,...   Expose each secret as a file and substitute its path
+                           for the {{name}} placeholder in <cmd>
+                           (restic --password-file {{name}})
+  --askpass=name           Serve this secret through an askpass helper for
+                           commands that only read from the terminal; sets
+                           SSH_ASKPASS, SUDO_ASKPASS, GIT_ASKPASS,
+                           RESTIC_PASSWORD_COMMAND, BORG_PASSCOMMAND
+                           (sudo still needs its own -A flag)
   --dry-run                Print the resolved plan and exit; do not read the
                            key-store, prompt for a password, or run the command
   -y, --yes                For config/check: assume yes (create missing

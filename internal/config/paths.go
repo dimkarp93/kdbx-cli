@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const dirName = "kdbx-cli"
+
 func ExpandHome(p string) string {
 	if p == "~" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -23,7 +25,11 @@ func ExpandHome(p string) string {
 	return p
 }
 
-func DefaultPath() string {
+func Dir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "kdbx-env", "default")
+	return filepath.Join(home, ".config", dirName)
+}
+
+func DefaultPath() string {
+	return filepath.Join(Dir(), "default")
 }
