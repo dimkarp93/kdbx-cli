@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/domain"
-	"github.com/dimkarp93/kdbx-env/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 )
 
 func TestSplitArgs(t *testing.T) {
@@ -125,7 +125,7 @@ func TestDescribeSection(t *testing.T) {
 
 func TestRenderCommand(t *testing.T) {
 	secrets := map[string]string{"GITHUB_TOKEN": "GH_TOKEN", "NPM_TOKEN": "NPM_TOKEN"}
-	got := renderCommand(sortedMappings(secrets), []string{"install", "arg with spaces", "plain"})
+	got := renderCommand(sortedMappings(secrets), nil, []string{"install", "arg with spaces", "plain"})
 	want := "GH_TOKEN=<secret from GITHUB_TOKEN> NPM_TOKEN=<secret from NPM_TOKEN> install 'arg with spaces' plain"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
@@ -289,5 +289,85 @@ func TestShowTUINavigationAndOpen(t *testing.T) {
 	}
 	if !strings.Contains(m.status, "opened in KeePassXC") {
 		t.Errorf("status after open: %q", m.status)
+	}
+}
+
+func TestParseRunFlagsDeliveryModes(t *testing.T) {
+	f, err := parseRunFlags([]string{
+		"--stdin", "A,B", "--stdin=C", "--stdin-keep-open",
+		"--secret-file=F1, F2", "--secret-file", "F3",
+		"--askpass=P",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.stdin, []string{"A", "B", "C"}) {
+		t.Errorf("stdin: got %v", f.stdin)
+	}
+	if !f.stdinKeepOpen {
+		t.Error("stdinKeepOpen should be true")
+	}
+	if !reflect.DeepEqual(f.files, []string{"F1", "F2", "F3"}) {
+		t.Errorf("files: got %v", f.files)
+	}
+	if f.askpass != "P" {
+		t.Errorf("askpass: got %q", f.askpass)
+	}
+}
+
+func TestStdinPayload(t *testing.T) {
+	got, err := stdinPayload([]string{"pw", "pw"}, map[string]string{"pw": "s3cret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "s3cret\ns3cret\n" {
+		t.Errorf("got %q", got)
+	}
+	if _, err := stdinPayload([]string{"pw"}, map[string]string{"pw": "a\nb"}); err == nil {
+		t.Error("expected an error for a secret with a newline")
+	}
+}
+
+func TestSubstitutePlaceholders(t *testing.T) {
+	args := []string{"restic", "--password-file", "{{repo pw}}", "--other=x{{repo pw}}x"}
+	got, err := substitutePlaceholders(args, map[string]string{"repo pw": "/run/fifo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"restic", "--password-file", "/run/fifo", "--other=x/run/fifox"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if args[2] != "{{repo pw}}" {
+		t.Error("input args were mutated")
+	}
+	if _, err := substitutePlaceholders([]string{"restic"}, map[string]string{"pw": "/run/fifo"}); err == nil {
+		t.Error("expected an error when the placeholder is absent")
+	}
+}
+
+func TestWithAskpass(t *testing.T) {
+	env := withAskpass([]string{"PATH=/bin", "SSH_ASKPASS=/old", "HOME=/h"}, "/tmp/askpass.sh")
+	if slices.Contains(env, "SSH_ASKPASS=/old") {
+		t.Error("the pre-existing SSH_ASKPASS was not replaced")
+	}
+	for _, want := range []string{
+		"PATH=/bin", "HOME=/h",
+		"SSH_ASKPASS=/tmp/askpass.sh", "SUDO_ASKPASS=/tmp/askpass.sh",
+		"GIT_ASKPASS=/tmp/askpass.sh", "RESTIC_PASSWORD_COMMAND=/tmp/askpass.sh",
+		"BORG_PASSCOMMAND=/tmp/askpass.sh", "SSH_ASKPASS_REQUIRE=force",
+		"GIT_TERMINAL_PROMPT=0",
+	} {
+		if !slices.Contains(env, want) {
+			t.Errorf("env missing %q: %v", want, env)
+		}
+	}
+}
+
+func TestRenderCommandWithFiles(t *testing.T) {
+	got := renderCommand(nil, []string{"repo"}, []string{"restic", "--password-file", "{{repo}}"})
+	want := "restic --password-file '<file with repo>'"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
 }

@@ -6,10 +6,10 @@ import (
 	"os"
 	"sort"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/keepass"
-	"github.com/dimkarp93/kdbx-env/internal/keyring"
-	"github.com/dimkarp93/kdbx-env/internal/term"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/keepass"
+	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
 func fileExists(path string) bool {
@@ -20,15 +20,16 @@ func fileExists(path string) bool {
 func AggregateStores(cfg config.Config) map[string][]string {
 	sets := map[string]map[string]bool{}
 	for section := range cfg.Sections {
-		res := Resolve(cfg, section, "", map[string]string{})
-		if res.KeyStore == "" || len(res.Secrets) == 0 {
+		res := Resolve(cfg, section, Overrides{})
+		titles := res.AllTitles()
+		if res.KeyStore == "" || len(titles) == 0 {
 			continue
 		}
 		ks := config.ExpandHome(res.KeyStore)
 		if sets[ks] == nil {
 			sets[ks] = map[string]bool{}
 		}
-		for name := range res.Secrets {
+		for _, name := range titles {
 			sets[ks][name] = true
 		}
 	}
@@ -47,8 +48,8 @@ func AggregateStores(cfg config.Config) map[string][]string {
 func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
 	sets := map[string]map[string]string{}
 	for section := range cfg.Sections {
-		res := Resolve(cfg, section, "", map[string]string{})
-		if res.KeyStore == "" || len(res.Secrets) == 0 {
+		res := Resolve(cfg, section, Overrides{})
+		if res.KeyStore == "" || len(res.AllTitles()) == 0 {
 			continue
 		}
 		ks := config.ExpandHome(res.KeyStore)
@@ -56,6 +57,21 @@ func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
 			sets[ks] = map[string]string{}
 		}
 		maps.Copy(sets[ks], res.Secrets)
+		for _, name := range res.Stdin {
+			if _, ok := sets[ks][name]; !ok {
+				sets[ks][name] = ChannelStdin
+			}
+		}
+		for _, name := range res.Files {
+			if _, ok := sets[ks][name]; !ok {
+				sets[ks][name] = ChannelFile
+			}
+		}
+		if res.Askpass != "" {
+			if _, ok := sets[ks][res.Askpass]; !ok {
+				sets[ks][res.Askpass] = ChannelAskpass
+			}
+		}
 	}
 	out := make(map[string][]Mapping, len(sets))
 	for ks, m := range sets {

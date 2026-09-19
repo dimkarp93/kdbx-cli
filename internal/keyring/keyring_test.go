@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
 
 func TestNewCache(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dimkarp93/kdbx-env/internal/config"
-	"github.com/dimkarp93/kdbx-env/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/domain"
 )
 
 type envSecret struct {
@@ -59,12 +59,15 @@ func shellQuote(s string) string {
 	return s
 }
 
-func renderCommand(mappings []envSecret, child []string) string {
+func renderCommand(mappings []envSecret, files []string, child []string) string {
 	parts := make([]string, 0, len(mappings)+len(child))
 	for _, m := range mappings {
 		parts = append(parts, fmt.Sprintf("%s=<secret from %s>", m.env, m.name))
 	}
 	for _, a := range child {
+		for _, name := range files {
+			a = strings.ReplaceAll(a, placeholder(name), fmt.Sprintf("<file with %s>", name))
+		}
 		parts = append(parts, shellQuote(a))
 	}
 	return strings.Join(parts, " ")
@@ -109,7 +112,34 @@ func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, fla
 		}
 	}
 
+	if len(res.Stdin) > 0 {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Stdin (one line per secret, in order):")
+		for _, name := range res.Stdin {
+			fmt.Fprintf(out, "  <secret from %s>\n", name)
+		}
+		if res.StdinKeepOpen {
+			fmt.Fprintln(out, "  (stdin stays open afterwards)")
+		} else {
+			fmt.Fprintln(out, "  (stdin is closed afterwards)")
+		}
+	}
+
+	if len(res.Files) > 0 {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Files (placeholder ← secret):")
+		for _, name := range res.Files {
+			fmt.Fprintf(out, "  %s ← %s\n", placeholder(name), name)
+		}
+	}
+
+	if res.Askpass != "" {
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "Askpass:      %s\n", res.Askpass)
+		fmt.Fprintf(out, "              %s\n", strings.Join(askpassEnv, ", "))
+	}
+
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Command:")
-	fmt.Fprintf(out, "  %s\n", renderCommand(mappings, child))
+	fmt.Fprintf(out, "  %s\n", renderCommand(mappings, res.Files, child))
 }

@@ -23,3 +23,9 @@ func MappingsToMap(pairs []Mapping) map[string]string {
 	}
 	return m
 }
+
+const (
+	ChannelStdin   = "(stdin)"
+	ChannelFile    = "(file)"
+	ChannelAskpass = "(askpass)"
+)

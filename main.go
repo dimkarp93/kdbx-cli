@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/dimkarp93/install-libs/buildinfo"
-	"github.com/dimkarp93/kdbx-env/internal/cmd"
+	"github.com/dimkarp93/kdbx-cli/internal/cmd"
 )
 
 var (
