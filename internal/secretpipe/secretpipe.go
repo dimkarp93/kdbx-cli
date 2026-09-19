@@ -9,8 +9,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 type Set struct {
@@ -29,11 +27,10 @@ func (s *Set) Dir() string { return s.dir }
 // The secret lives in an anonymous in-memory file; the child reads it back through
 // /dev/fd/N, so the value never gets a name on any filesystem.
 func (s *Set) File(name, value string) (*os.File, error) {
-	fd, err := unix.MemfdCreate("kdbx-cli-"+sanitize(name), unix.MFD_CLOEXEC)
+	f, err := createAnonFile(sanitize(name))
 	if err != nil {
 		return nil, fmt.Errorf("cannot create in-memory file for %q: %w", name, err)
 	}
-	f := os.NewFile(uintptr(fd), "/dev/fd/"+sanitize(name))
 	if _, err := f.WriteString(value); err != nil {
 		f.Close()
 		return nil, err
