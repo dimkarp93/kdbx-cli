@@ -41,7 +41,7 @@ github.com/clipperhouse/uax29/v2/graphemes
 # github.com/danieljoos/wincred v1.2.3
 ## explicit; go 1.18
 github.com/danieljoos/wincred
-# github.com/dimkarp93/install-libs v0.1.1
+# github.com/dimkarp93/install-libs v0.2.0
 ## explicit; go 1.24
 github.com/dimkarp93/install-libs/buildinfo
 # github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f
