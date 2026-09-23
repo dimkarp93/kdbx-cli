@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "getwd:", err)
 		os.Exit(2)
 	}
-	binaryPath = filepath.Join(wd, "kdbx-cli")
+	binaryPath = filepath.Join(wd, "..", "..", "kdbx-cli")
 	if _, err := os.Stat(binaryPath); err != nil {
 		fmt.Fprintln(os.Stderr, "binary not found at", binaryPath, "— run `just build` first")
 		os.Exit(2)

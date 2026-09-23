@@ -46,7 +46,7 @@ kdbx-cli forget  [--config <path>]
 
 Код разбит на пакеты под `internal/` (без циклов: `config`/`keepass`/`term`/`secretpipe` — листья; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term,secretpipe`; корневой `main → cmd`).
 
-- `main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
+- `cmd/kdbx-cli/main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
 - `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`; `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine`, `Run` (вызов `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
