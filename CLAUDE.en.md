@@ -46,7 +46,7 @@ Password caching (`internal/keyring`) is opt-in only through the `cached` sectio
 
 The code is split into packages under `internal/` (no cycles: `config`/`keepass`/`term`/`secretpipe` are leaves; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term,secretpipe`; the root `main → cmd`).
 
-- `main.go` (package `main`) — only `var version` (set via `-X main.version`) and the `cmd.Execute(version)` call.
+- `cmd/kdbx-cli/main.go` (package `main`) — only `var version` (set via `-X main.version`) and the `cmd.Execute(version)` call.
 - `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`; `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine`, `Run` (invoking `keepassxc-cli`), KeePass XML parsing (`ParseSecrets`, the `Entry` type), `LookupSecret`; write operations `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, the `Get/Remember/Forget` methods, the swappable `keyringSet/Get/Delete` (go-keyring / Secret Service).

@@ -1,5 +1,7 @@
 tests_dir := "tests"
 version_file := "versions.txt"
+export GOWORK := "off"
+export GOFLAGS := "-mod=vendor"
 
 _default:
     @just --list
@@ -19,7 +21,7 @@ build:
     c=$(git rev-parse --short HEAD 2>/dev/null || true)
     CGO_ENABLED=0 go build -trimpath \
         -ldflags="-s -w -X main.version=$v -X main.origin=$o -X main.upstream=$up -X main.commit=$c -X main.channel=local" \
-        -o kdbx-cli .
+        -o kdbx-cli ./cmd/kdbx-cli
     echo "Built: ./kdbx-cli (v$v)"
 
 unit-test mask="":
@@ -72,3 +74,11 @@ bump-major:
     EOF
     printf '%s.0.0\n' "$((MAJ + 1))" > {{version_file}}
     cat {{version_file}}
+
+vendor:
+    GOWORK=off go mod tidy
+    GOWORK=off go mod vendor
+
+vendor-check:
+    GOWORK=off go mod vendor
+    test -z "$(git status --porcelain -- go.mod go.sum vendor/ | tee /dev/stderr)"
