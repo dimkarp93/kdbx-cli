@@ -66,11 +66,11 @@ The code is split into packages under `internal/` (no cycles: `config`/`keepass`
 
 Depends on `keepassxc-cli` being in PATH. Go 1.26.1. The TUI is built on Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); password caching uses `zalando/go-keyring` (godbus, no cgo). The build is static (`CGO_ENABLED=0`).
 
-- `just build` — build the `./kdbx-cli` binary (version taken from `versions.txt`).
-- `just unit-test` — unit tests (`go test ./...`).
-- `just e2e-test` — e2e (the `e2e` tag, really creates/reads a `.kdbx` through `keepassxc-cli`).
-- `just test` — everything at once.
-- `just bump-version` — bump `versions.txt`.
+- `make build` — build the `./kdbx-cli` binary (version taken from `versions.txt`).
+- `make unit-test` — unit tests (`go test ./...`).
+- `make e2e-test` — e2e (the `e2e` tag, really creates/reads a `.kdbx` through `keepassxc-cli`).
+- `make test` — everything at once.
+- `make bump-version` — bump `versions.txt`.
 
 Releasing — a push to `main`/`master`, tag `v<versions.txt>` (see the `dimkarp93/install` conventions). Two platforms, identical artifacts:
 

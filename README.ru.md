@@ -334,8 +334,8 @@ kdbx-cli show --config ~/.config/kdbx-cli/install_secrets
 ## Разработка
 
 ```sh
-just build       # собрать ./kdbx-cli
-just unit-test   # юнит-тесты
-just e2e-test    # e2e (нужна keepassxc-cli)
-just test        # всё вместе
+make build       # собрать ./kdbx-cli
+make unit-test   # юнит-тесты
+make e2e-test    # e2e (нужна keepassxc-cli)
+make test        # всё вместе
 ```

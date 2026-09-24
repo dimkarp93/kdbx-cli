@@ -66,11 +66,11 @@ kdbx-cli forget  [--config <path>]
 
 Зависит от `keepassxc-cli` в PATH. Go 1.26.1. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — `zalando/go-keyring` (godbus, без cgo). Сборка статическая (`CGO_ENABLED=0`).
 
-- `just build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
-- `just unit-test` — юнит-тесты (`go test ./...`).
-- `just e2e-test` — e2e (тег `e2e`, реально создаёт/читает `.kdbx` через `keepassxc-cli`).
-- `just test` — всё вместе.
-- `just bump-version` — поднять `versions.txt`.
+- `make build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
+- `make unit-test` — юнит-тесты (`go test ./...`).
+- `make e2e-test` — e2e (тег `e2e`, реально создаёт/читает `.kdbx` через `keepassxc-cli`).
+- `make test` — всё вместе.
+- `make bump-version` — поднять `versions.txt`.
 
 Релиз — push в `main`/`master`, тег `v<versions.txt>` (см. конвенции `dimkarp93/install`). Две площадки, одинаковые артефакты:
 

@@ -334,8 +334,8 @@ In the `secrets` channel, though, `kdbx-cli` injects secrets into the environmen
 ## Development
 
 ```sh
-just build       # build ./kdbx-cli
-just unit-test   # unit tests
-just e2e-test    # e2e (requires keepassxc-cli)
-just test        # everything at once
+make build       # build ./kdbx-cli
+make unit-test   # unit tests
+make e2e-test    # e2e (requires keepassxc-cli)
+make test        # everything at once
 ```

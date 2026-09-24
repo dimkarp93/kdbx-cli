@@ -25,7 +25,7 @@ release:
 
       go mod vendor
       if [ -n "$(git status --porcelain -- go.mod go.sum vendor/ | tee /dev/stderr)" ]; then
-        echo "vendor/ does not match go.mod - run: just vendor" >&2
+        echo "vendor/ does not match go.mod - run: make vendor" >&2
         exit 1
       fi
 
