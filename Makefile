@@ -1,11 +1,10 @@
-TESTS_DIR := tests
 VERSION_FILE := versions.txt
 MASK :=
 
 export GOWORK := off
 export GOFLAGS := -mod=vendor
 
-.PHONY: help build unit-test e2e-test test clear-tests bump-patch bump-minor bump-major _bump-commit vendor vendor-check
+.PHONY: help build unit-test test bump-patch bump-minor bump-major _bump-commit vendor vendor-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:' Makefile | sed 's/:.*//' | sort -u
@@ -28,24 +27,9 @@ build:
 	echo "Built: ./kdbx-cli (v$$v)"
 
 unit-test:
-	go test $(if $(MASK),-run $(MASK)) ./...
+	go test $(if $(MASK),-run '$(MASK)') ./...
 
-e2e-test: build
-	@set -e; \
-	mkdir -p $(TESTS_DIR)/_root; \
-	KDBX_CLI_E2E_ROOT="$$(pwd)/$(TESTS_DIR)/_root" \
-	KDBX_CLI_E2E_KEEP=0 \
-	go test -tags=e2e $(if $(MASK),-run $(MASK)) ./...; \
-	status=$$?; \
-	rm -rf $(TESTS_DIR)/_root; \
-	exit $$status
-
-test: unit-test e2e-test
-
-clear-tests:
-	@rm -rf $(TESTS_DIR)/*
-	@touch $(TESTS_DIR)/.gitkeep
-	@echo "Cleared $(TESTS_DIR)/"
+test: unit-test
 
 bump-patch:
 	@set -eu; \

@@ -1,6 +1,4 @@
-kdbx-cli
+/kdbx-cli
 *.kdbx
-tests/*
-!tests/.gitkeep
 go.work
 go.work.sum

@@ -31,6 +31,10 @@ func (s *Set) File(name, value string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot create in-memory file for %q: %w", name, err)
 	}
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		return nil, err
+	}
 	if _, err := f.WriteString(value); err != nil {
 		f.Close()
 		return nil, err

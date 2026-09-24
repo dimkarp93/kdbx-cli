@@ -51,7 +51,7 @@ kdbx-cli forget  [--config <path>]
 - `internal/keepass` — `CheckEngine`, `Run` (вызов `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
 - `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
-- `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
+- `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
 - `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
   - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`version`/run-режим), `usage`, `parseConfigArgs`.
@@ -68,9 +68,10 @@ kdbx-cli forget  [--config <path>]
 
 - `make build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
 - `make unit-test` — юнит-тесты (`go test ./...`).
-- `make e2e-test` — e2e (тег `e2e`, реально создаёт/читает `.kdbx` через `keepassxc-cli`).
-- `make test` — всё вместе.
+- `make test` — то же, что `unit-test`.
 - `make bump-version` — поднять `versions.txt`.
+
+Интеграционные тесты живут в отдельном репозитории `kdbx-cli-tests` и гоняются против выпущенных версий; здесь остаются только юнит-тесты.
 
 Релиз — push в `main`/`master`, тег `v<versions.txt>` (см. конвенции `dimkarp93/install`). Две площадки, одинаковые артефакты:
 
