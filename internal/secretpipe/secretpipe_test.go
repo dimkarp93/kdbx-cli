@@ -3,6 +3,7 @@ package secretpipe
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +26,27 @@ func TestFileIsReadableRepeatedly(t *testing.T) {
 	}
 	if string(out) != "s3crets3cret" {
 		t.Errorf("got %q, want %q", string(out), "s3crets3cret")
+	}
+}
+
+func TestFileIsOwnerOnly(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	f, err := s.File("pw", "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	cmd := exec.Command("stat", "-L", "-c", "%a", "/dev/fd/3")
+	cmd.ExtraFiles = []*os.File{f}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "600" {
+		t.Errorf("mode of /dev/fd/3: got %s, want 600", got)
 	}
 }
 

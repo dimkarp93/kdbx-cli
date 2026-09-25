@@ -154,6 +154,8 @@ kdbx-cli --stdin=sudo-pw --stdin-keep-open -- sudo -S tee /etc/foo.conf < local.
 
 A secret containing a newline cannot be delivered this way — `kdbx-cli` exits with an error.
 
+Some tools read stdin only when there is no terminal: `psql -W`, for example, asks on `/dev/tty` whenever it has one, so in an interactive shell it ignores the secret on stdin (it works from cron or CI). For `psql` use `PGPASSWORD` through `secrets` or `PGPASSFILE` through `files`.
+
 ### `files` — the secret as a file
 
 The secret is placed into an anonymous in-memory file (`memfd`), the child receives it as `/dev/fd/N`, and `kdbx-cli` substitutes that path for the `{{Title}}` placeholder in the arguments. The secret never gets a name on any filesystem. The file can be read any number of times.
@@ -165,6 +167,20 @@ kdbx-cli --secret-file=gpg-pass    -- gpg --batch --pinentry-mode loopback --pas
 ```
 
 Put the placeholder in single quotes so the shell leaves it alone. If the placeholder is absent from the command, `kdbx-cli` exits with an error instead of silently running it.
+
+The file has mode `0600`, so tools that reject credential files readable by others (`mysql --defaults-extra-file`, libpq's `PGPASSFILE`) accept it:
+
+```sh
+kdbx-cli --secret-file=pgpass -- sh -c 'PGPASSFILE="$1" exec psql -h db -U app' sh '{{pgpass}}'
+```
+
+`ssh` and `ssh-agent` close every inherited descriptor above stderr at startup, so `ssh -i '{{ssh-key}}'` cannot work. Load the key into an agent from a wrapper shell instead (`-i` takes the public key to pick the identity):
+
+```sh
+kdbx-cli --secret-file=ssh-key -- sh -c \
+  'eval "$(ssh-agent -s)" >/dev/null && trap "kill \$SSH_AGENT_PID" EXIT && ssh-add -q "$1" && ssh -i ~/.ssh/id.pub host' \
+  sh '{{ssh-key}}'
+```
 
 ### `askpass` — for commands that only read from the terminal
 
@@ -178,6 +194,8 @@ kdbx-cli --askpass=restic-pw    -- restic -r sftp:backup:/b snapshots
 ```
 
 `sudo` only looks at `SUDO_ASKPASS` with the `-A` flag — you have to pass it yourself.
+
+The helper returns the same secret to every prompt. For `git` over HTTP put the username in the URL (`https://me@host/repo.git`) so that git only asks for the password. Without it the secret is sent as the username as well, which only works on servers that accept a token as the username (GitHub, Gitea).
 
 ### In the config
 
@@ -336,6 +354,7 @@ In the `secrets` channel, though, `kdbx-cli` injects secrets into the environmen
 ```sh
 make build       # build ./kdbx-cli
 make unit-test   # unit tests
-make e2e-test    # e2e (requires keepassxc-cli)
-make test        # everything at once
+make test        # the same as unit-test
 ```
+
+Integration tests (real tools and services in Docker, every delivery channel, the security invariants, terminal recordings) live in a separate repository, `kdbx-cli-tests`, and run against released versions of `kdbx-cli`.

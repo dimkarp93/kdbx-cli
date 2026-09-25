@@ -51,7 +51,7 @@ The code is split into packages under `internal/` (no cycles: `config`/`keepass`
 - `internal/keepass` — `CheckEngine`, `Run` (invoking `keepassxc-cli`), KeePass XML parsing (`ParseSecrets`, the `Entry` type), `LookupSecret`; write operations `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, the `Get/Remember/Forget` methods, the swappable `keyringSet/Get/Delete` (go-keyring / Secret Service).
 - `internal/term` — terminal input through `/dev/tty` (`KDBX_CLI_PASSWORD` for tests): `ReadPassword`, `ReadWithPrefill` (fallback input), `Confirm` (Y/N, honours `-y`), `IsInteractive`.
-- `internal/secretpipe` — secret delivery outside env: `Set.File` (an anonymous `memfd` handed to the child through `cmd.ExtraFiles` as `/dev/fd/N`), `Set.Askpass` (a FIFO in a `0700` directory plus a `head -n 1` script; the `feed` goroutine serves the secret to every new reader), `Set.Close`.
+- `internal/secretpipe` — secret delivery outside env: `Set.File` (an anonymous `memfd` with mode `0600`, handed to the child through `cmd.ExtraFiles` as `/dev/fd/N`), `Set.Askpass` (a FIFO in a `0700` directory plus a `head -n 1` script; the `feed` goroutine serves the secret to every new reader), `Set.Close`.
 - `internal/domain` — application logic: `Resolve` (merging `default` → tool section → flags, the `Overrides`/`Resolved` types, `Resolved.AllTitles`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (cache→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (report + creation of what is missing), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — the CLI layer:
   - `execute.go` — `Execute(version)`: argv parsing, dispatch (`config`/`check`/`show`/`forget`/`version`/run mode), `usage`, `parseConfigArgs`.
@@ -68,9 +68,10 @@ Depends on `keepassxc-cli` being in PATH. Go 1.26.1. The TUI is built on Bubble 
 
 - `make build` — build the `./kdbx-cli` binary (version taken from `versions.txt`).
 - `make unit-test` — unit tests (`go test ./...`).
-- `make e2e-test` — e2e (the `e2e` tag, really creates/reads a `.kdbx` through `keepassxc-cli`).
-- `make test` — everything at once.
+- `make test` — the same as `unit-test`.
 - `make bump-version` — bump `versions.txt`.
+
+Integration tests live in the separate `kdbx-cli-tests` repository and run against released versions; this repository keeps only unit tests.
 
 Releasing — a push to `main`/`master`, tag `v<versions.txt>` (see the `dimkarp93/install` conventions). Two platforms, identical artifacts:
 
