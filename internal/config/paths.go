@@ -3,33 +3,26 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/dimkarp93/install-libs/xdgpath"
 )
 
 const dirName = "kdbx-cli"
 
 func ExpandHome(p string) string {
-	if p == "~" {
-		if home, err := os.UserHomeDir(); err == nil {
-			return home
-		}
-		return p
-	}
-	if strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return p
-		}
-		return filepath.Join(home, p[2:])
-	}
-	return p
+	return xdgpath.ExpandHome(p)
 }
 
 func Dir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", dirName)
+	return xdgpath.ConfigDir(dirName)
 }
 
 func DefaultPath() string {
-	return filepath.Join(Dir(), "default")
+	primary := filepath.Join(Dir(), "default")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return primary
+	}
+	legacy := filepath.Join(home, ".config", dirName, "default")
+	return xdgpath.WithLegacy(primary, legacy)
 }
