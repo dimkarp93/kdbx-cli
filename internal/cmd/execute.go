@@ -29,7 +29,7 @@ func Execute(info buildinfo.Info) {
 	}
 
 	switch args[0] {
-	case "help", "--help", "-h":
+	case "help", "--help", "-h", "-help":
 		usage()
 		return
 	case "config":
