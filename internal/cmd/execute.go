@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/install-libs/buildinfo"
-	"github.com/dimkarp93/install-libs/xdgpath"
+	"github.com/dimkarp93/install-libs/pathreport"
 )
 
 func Execute(info buildinfo.Info) {
@@ -24,7 +24,7 @@ func Execute(info buildinfo.Info) {
 		os.Exit(code)
 	}
 
-	if xdgpath.NewPaths(pathEntries()...).HandlePath(os.Stdout, args) {
+	if pathreport.New(pathEntries()...).HandlePath(os.Stdout, args) {
 		return
 	}
 
