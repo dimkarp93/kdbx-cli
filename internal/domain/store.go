@@ -22,6 +22,12 @@ func AggregateStores(cfg config.Config) map[string][]string {
 	for section := range cfg.Sections {
 		res := Resolve(cfg, section, Overrides{})
 		titles := res.AllTitles()
+		tmplTitles, err := res.TemplateTitles()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping templates for section %q: %v\n", section, err)
+		} else {
+			titles = append(titles, tmplTitles...)
+		}
 		if res.KeyStore == "" || len(titles) == 0 {
 			continue
 		}
@@ -49,7 +55,12 @@ func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
 	sets := map[string]map[string]string{}
 	for section := range cfg.Sections {
 		res := Resolve(cfg, section, Overrides{})
-		if res.KeyStore == "" || len(res.AllTitles()) == 0 {
+		tmplTitles, err := res.TemplateTitles()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping templates for section %q: %v\n", section, err)
+			tmplTitles = nil
+		}
+		if res.KeyStore == "" || (len(res.AllTitles()) == 0 && len(tmplTitles) == 0) {
 			continue
 		}
 		ks := config.ExpandHome(res.KeyStore)
@@ -65,6 +76,11 @@ func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
 		for _, name := range res.Files {
 			if _, ok := sets[ks][name]; !ok {
 				sets[ks][name] = ChannelFile
+			}
+		}
+		for _, name := range tmplTitles {
+			if _, ok := sets[ks][name]; !ok {
+				sets[ks][name] = ChannelTemplate
 			}
 		}
 		if res.Askpass != "" {

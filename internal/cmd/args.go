@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/domain"
 )
 
@@ -14,6 +15,7 @@ type runFlags struct {
 	stdin         []string
 	stdinKeepOpen bool
 	files         []string
+	templates     []config.Template
 	askpass       string
 	dryRun        bool
 }
@@ -89,6 +91,23 @@ func parseRunFlags(args []string) (runFlags, error) {
 			i++
 		case strings.HasPrefix(a, "--secret-file="):
 			f.files = append(f.files, splitTitles(strings.TrimPrefix(a, "--secret-file="))...)
+		case a == "--template":
+			v, err := needValue(i)
+			if err != nil {
+				return f, err
+			}
+			parsed, err := parseTemplatesFlag(v)
+			if err != nil {
+				return f, err
+			}
+			f.templates = append(f.templates, parsed...)
+			i++
+		case strings.HasPrefix(a, "--template="):
+			parsed, err := parseTemplatesFlag(strings.TrimPrefix(a, "--template="))
+			if err != nil {
+				return f, err
+			}
+			f.templates = append(f.templates, parsed...)
 		case a == "--askpass":
 			v, err := needValue(i)
 			if err != nil {
@@ -127,6 +146,27 @@ func mergeSecretsFlag(dst map[string]string, spec string) error {
 	return nil
 }
 
+func parseTemplatesFlag(spec string) ([]config.Template, error) {
+	var out []config.Template
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		i := strings.LastIndex(part, ":")
+		if i < 0 {
+			return nil, fmt.Errorf("invalid template entry %q (expected name:path)", part)
+		}
+		name := strings.TrimSpace(part[:i])
+		path := strings.TrimSpace(part[i+1:])
+		if name == "" || path == "" {
+			return nil, fmt.Errorf("invalid template entry %q (expected name:path)", part)
+		}
+		out = append(out, config.Template{Name: name, Path: path})
+	}
+	return out, nil
+}
+
 func splitTitles(spec string) []string {
 	var out []string
 	for _, part := range strings.Split(spec, ",") {
@@ -144,6 +184,7 @@ func (f runFlags) overrides() domain.Overrides {
 		Stdin:         f.stdin,
 		StdinKeepOpen: f.stdinKeepOpen,
 		Files:         f.files,
+		Templates:     f.templates,
 		Askpass:       f.askpass,
 	}
 }

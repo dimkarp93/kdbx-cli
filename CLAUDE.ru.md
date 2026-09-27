@@ -20,25 +20,25 @@
 
 ## Назначение
 
-`kdbx-cli` — обёртка, запускающая команду с секретами из `.kdbx`-хранилища. Каналов доставки четыре: переменные окружения (`secrets`), stdin команды (`stdin`), файл через `memfd` + `/dev/fd/N` (`files`) и askpass-хелпер (`askpass`). Секреты не попадают в историю shell, в argv и на диск в plaintext. Чтение `.kdbx` — через внешнюю `keepassxc-cli` (своего крипто нет).
+`kdbx-cli` — обёртка, запускающая команду с секретами из `.kdbx`-хранилища. Каналов доставки пять: переменные окружения (`secrets`), stdin команды (`stdin`), файл через `memfd` + `/dev/fd/N` (`files`), файл, отрендеренный из шаблона с подстановкой секретов в содержимое, доставляемый тем же способом (`templates`), и askpass-хелпер (`askpass`). Секреты не попадают в историю shell, в argv и на диск в plaintext. Чтение `.kdbx` — через внешнюю `keepassxc-cli` (своего крипто нет).
 
 ```
 kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
          [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-         [--askpass=name] [--dry-run] -- <cmd> [args...]
+         [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
 kdbx-cli config  [--config <path>] [-y]
 kdbx-cli check   [--config <path>] [-y]
 kdbx-cli show    [--config <path>]
 kdbx-cli forget  [--config <path>]
 ```
 
-`--dry-run` печатает разрешённый план (конфиг, секция, маппинги, блоки stdin/files/askpass, итоговая команда с плейсхолдерами `<secret from Title>` и `<file with Title>`) и завершается, не читая хранилище и не запрашивая пароль.
+`--dry-run` печатает разрешённый план (конфиг, секция, маппинги, блоки stdin/files/templates/askpass, итоговая команда с плейсхолдерами `<secret from Title>` и `<file with Title>`) и завершается, не читая хранилище и не запрашивая пароль.
 
-`config` после сохранения и `check` сверяют наличие `Title` в `.kdbx` (через `keepassxc-cli export`) и предлагают создать отсутствующий файл/записи (`-y` — без подтверждений). `check` агрегирует требуемые `Title` по файлам через `resolve` по всем секциям и учитывает все четыре канала (`Resolved.AllTitles`).
+`config` после сохранения и `check` сверяют наличие `Title` в `.kdbx` (через `keepassxc-cli export`) и предлагают создать отсутствующий файл/записи (`-y` — без подтверждений). `check` агрегирует требуемые `Title` по файлам через `resolve` по всем секциям и учитывает все пять каналов (`Resolved.AllTitles` плюс `Resolved.TemplateTitles`, которая сканирует содержимое каждого шаблона на `{{Title}}`).
 
 ## Конфиг и кэш
 
-Схема конфига — struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string, Stdin []string, StdinKeepOpen bool, Files []string, Askpass string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files` заменяются целиком (порядок строк значим). `config.Load` читает только эту схему (программа в разработке, обратной совместимости со старыми форматами нет).
+Схема конфига — struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string, Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string }`, `Template{ Name, Path string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files`/`Templates` заменяются целиком (порядок строк значим). `config.Load` читает только эту схему (программа в разработке, обратной совместимости со старыми форматами нет).
 
 Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` в OS-keyring через `github.com/zalando/go-keyring`. `domain.UnlockExport` — единая точка «достать пароль (кэш→prompt) + export»; `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget`) чистит keyring для всех `.kdbx` конфига. keyring-обёртки (`keyringSet/Get/Delete`) — var'ы, стабятся в тестах. Деградирует без Secret Service (miss + warning, не падает).
 
@@ -52,10 +52,10 @@ kdbx-cli forget  [--config <path>]
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
 - `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
 - `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
-- `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
+- `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `TemplateTitles`/`RenderTemplate`/`Resolved.TemplateTitles` (сканирование `{{Title}}` в содержимом шаблона и рендер с JSON-экранированием для путей `.json`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
   - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`version`/run-режим), `usage`, `parseConfigArgs`.
-  - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag`, `splitTitles`, тип `runFlags` и его `overrides()`.
+  - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag`, `splitTitles`, `parseTemplatesFlag`, тип `runFlags` и его `overrides()`.
   - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
   - `plan.go` — `printPlan` и хелперы dry-run (`describeSection`, `renderCommand`, `shellQuote`).
   - `commands.go` — `cmdConfig` (TTY → TUI, иначе `configFallback`; после сохранения — `ReconcileStores` для default), `cmdCheck`, `cmdForget`.

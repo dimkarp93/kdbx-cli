@@ -20,25 +20,25 @@ Changing a document requires editing **both** language versions. Only command id
 
 ## Purpose
 
-`kdbx-cli` is a wrapper that runs a command with secrets from a `.kdbx` store. There are four delivery channels: environment variables (`secrets`), the command's stdin (`stdin`), a file via `memfd` + `/dev/fd/N` (`files`) and an askpass helper (`askpass`). Secrets do not end up in the shell history, in argv, or on disk in plaintext. Reading the `.kdbx` goes through the external `keepassxc-cli` (there is no in-house crypto).
+`kdbx-cli` is a wrapper that runs a command with secrets from a `.kdbx` store. There are five delivery channels: environment variables (`secrets`), the command's stdin (`stdin`), a file via `memfd` + `/dev/fd/N` (`files`), a file rendered from a template with secrets interpolated into its content, delivered the same way (`templates`), and an askpass helper (`askpass`). Secrets do not end up in the shell history, in argv, or on disk in plaintext. Reading the `.kdbx` goes through the external `keepassxc-cli` (there is no in-house crypto).
 
 ```
 kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
          [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-         [--askpass=name] [--dry-run] -- <cmd> [args...]
+         [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
 kdbx-cli config  [--config <path>] [-y]
 kdbx-cli check   [--config <path>] [-y]
 kdbx-cli show    [--config <path>]
 kdbx-cli forget  [--config <path>]
 ```
 
-`--dry-run` prints the resolved plan (config, section, mappings, the stdin/files/askpass blocks, the resulting command with `<secret from Title>` and `<file with Title>` placeholders) and exits without reading the store or asking for a password.
+`--dry-run` prints the resolved plan (config, section, mappings, the stdin/files/templates/askpass blocks, the resulting command with `<secret from Title>` and `<file with Title>` placeholders) and exits without reading the store or asking for a password.
 
-`config` after saving, and `check`, verify that the `Title`s are present in the `.kdbx` (via `keepassxc-cli export`) and offer to create the missing file/entries (`-y` — without confirmations). `check` aggregates the required `Title`s per file via `resolve` over all sections and covers all four channels (`Resolved.AllTitles`).
+`config` after saving, and `check`, verify that the `Title`s are present in the `.kdbx` (via `keepassxc-cli export`) and offer to create the missing file/entries (`-y` — without confirmations). `check` aggregates the required `Title`s per file via `resolve` over all sections and covers all five channels (`Resolved.AllTitles` plus `Resolved.TemplateTitles`, which scans each template's content for `{{Title}}`).
 
 ## Config and cache
 
-The config schema is the struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string, Stdin []string, StdinKeepOpen bool, Files []string, Askpass string }`. When sections are merged, `Secrets` is extended entry by entry while `Stdin`/`Files` are replaced as a whole (the order of the lines matters). `config.Load` reads only this schema (the program is under development, there is no backward compatibility with old formats).
+The config schema is the struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string, Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string }`, `Template{ Name, Path string }`. When sections are merged, `Secrets` is extended entry by entry while `Stdin`/`Files`/`Templates` are replaced as a whole (the order of the lines matters). `config.Load` reads only this schema (the program is under development, there is no backward compatibility with old formats).
 
 Password caching (`internal/keyring`) is opt-in only through the `cached` section (`enabled`, `ttl`); no flags or env variables. It stores the `.kdbx` master password in the OS keyring via `github.com/zalando/go-keyring`. `domain.UnlockExport` is the single entry point for "get the password (cache→prompt) + export"; `keyring.New(cfg.Cache)` builds the policy. `kdbx-cli forget` (`cmdForget`) clears the keyring for all `.kdbx` files in the config. The keyring wrappers (`keyringSet/Get/Delete`) are vars, stubbed in tests. It degrades gracefully without Secret Service (a miss plus a warning, no crash).
 
@@ -52,10 +52,10 @@ The code is split into packages under `internal/` (no cycles: `config`/`keepass`
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, the `Get/Remember/Forget` methods, the swappable `keyringSet/Get/Delete` (go-keyring / Secret Service).
 - `internal/term` — terminal input through `/dev/tty` (`KDBX_CLI_PASSWORD` for tests): `ReadPassword`, `ReadWithPrefill` (fallback input), `Confirm` (Y/N, honours `-y`), `IsInteractive`.
 - `internal/secretpipe` — secret delivery outside env: `Set.File` (an anonymous `memfd` with mode `0600`, handed to the child through `cmd.ExtraFiles` as `/dev/fd/N`), `Set.Askpass` (a FIFO in a `0700` directory plus a `head -n 1` script; the `feed` goroutine serves the secret to every new reader), `Set.Close`.
-- `internal/domain` — application logic: `Resolve` (merging `default` → tool section → flags, the `Overrides`/`Resolved` types, `Resolved.AllTitles`), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (cache→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (report + creation of what is missing), `BuildStoreViews`/`StoreView`.
+- `internal/domain` — application logic: `Resolve` (merging `default` → tool section → flags, the `Overrides`/`Resolved` types, `Resolved.AllTitles`), `TemplateTitles`/`RenderTemplate`/`Resolved.TemplateTitles` (scanning a template's content for `{{Title}}` and rendering it, JSON-escaping values for `.json` paths), `Mapping`/`MappingsFromMap`/`MappingsToMap`, `UnlockExport` (cache→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (report + creation of what is missing), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — the CLI layer:
   - `execute.go` — `Execute(version)`: argv parsing, dispatch (`config`/`check`/`show`/`forget`/`version`/run mode), `usage`, `parseConfigArgs`.
-  - `args.go` — `splitArgs` (on `--`), `parseRunFlags`, `mergeSecretsFlag`, `splitTitles`, the `runFlags` type and its `overrides()`.
+  - `args.go` — `splitArgs` (on `--`), `parseRunFlags`, `mergeSecretsFlag`, `splitTitles`, `parseTemplatesFlag`, the `runFlags` type and its `overrides()`.
   - `run.go` — `cmdRun`: resolve → (if `--dry-run` → `printPlan`) → password → export → delivery over every channel (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → launching the child command, propagating the exit code.
   - `plan.go` — `printPlan` and the dry-run helpers (`describeSection`, `renderCommand`, `shellQuote`).
   - `commands.go` — `cmdConfig` (TTY → TUI, otherwise `configFallback`; after saving — `ReconcileStores` for default), `cmdCheck`, `cmdForget`.

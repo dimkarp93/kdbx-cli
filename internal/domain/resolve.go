@@ -12,6 +12,7 @@ type Resolved struct {
 	Stdin         []string
 	StdinKeepOpen bool
 	Files         []string
+	Templates     []config.Template
 	Askpass       string
 }
 
@@ -21,6 +22,7 @@ type Overrides struct {
 	Stdin         []string
 	StdinKeepOpen bool
 	Files         []string
+	Templates     []config.Template
 	Askpass       string
 }
 
@@ -39,6 +41,9 @@ func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
 		}
 		if len(s.Files) > 0 {
 			r.Files = s.Files
+		}
+		if len(s.Templates) > 0 {
+			r.Templates = s.Templates
 		}
 		if s.Askpass != "" {
 			r.Askpass = s.Askpass
@@ -64,6 +69,9 @@ func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
 	}
 	if len(over.Files) > 0 {
 		r.Files = over.Files
+	}
+	if len(over.Templates) > 0 {
+		r.Templates = over.Templates
 	}
 	if over.Askpass != "" {
 		r.Askpass = over.Askpass

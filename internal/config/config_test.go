@@ -44,3 +44,25 @@ func TestSaveReloadRoundTrip(t *testing.T) {
 		t.Errorf("reload after save: %+v", c2.Sections)
 	}
 }
+
+func TestSaveReloadRoundTripWithTemplates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg")
+	c := Config{Sections: map[string]Section{
+		"default": {
+			KeyStore:  "/k.kdbx",
+			Templates: []Template{{Name: "cfg", Path: "/tmp/settings.json.tmpl"}},
+		},
+	}}
+	if err := Save(path, c); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c2.Sections["default"].Templates
+	if len(got) != 1 || got[0].Name != "cfg" || got[0].Path != "/tmp/settings.json.tmpl" {
+		t.Errorf("templates after roundtrip: %+v", got)
+	}
+}

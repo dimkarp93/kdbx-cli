@@ -92,6 +92,33 @@ func TestParseRunFlagsErrors(t *testing.T) {
 	}
 }
 
+func TestParseRunFlagsTemplate(t *testing.T) {
+	f, err := parseRunFlags([]string{"--template", "cfg:/a/settings.json", "--template=cfg2:/b/other.env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []config.Template{{Name: "cfg", Path: "/a/settings.json"}, {Name: "cfg2", Path: "/b/other.env"}}
+	if !reflect.DeepEqual(f.templates, want) {
+		t.Errorf("templates: got %+v, want %+v", f.templates, want)
+	}
+}
+
+func TestParseTemplatesFlagErrors(t *testing.T) {
+	cases := []string{"noColon", ":path", "name:"}
+	for _, c := range cases {
+		if _, err := parseTemplatesFlag(c); err == nil {
+			t.Errorf("expected error for %q", c)
+		}
+	}
+}
+
+func TestTemplateNames(t *testing.T) {
+	got := templateNames([]config.Template{{Name: "a", Path: "/x"}, {Name: "b", Path: "/y"}})
+	if !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("got %v", got)
+	}
+}
+
 func TestMergeSecretsFlag(t *testing.T) {
 	m := map[string]string{}
 	if err := mergeSecretsFlag(m, "Group/Sub/Title:ENV, X:Y ,"); err != nil {
@@ -369,5 +396,43 @@ func TestRenderCommandWithFiles(t *testing.T) {
 	want := "restic --password-file '<file with repo>'"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderCommandWithTemplates(t *testing.T) {
+	got := renderCommand(nil, []string{"cfg"}, []string{"admin", "{{cfg}}"})
+	want := "admin '<file with cfg>'"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
+	dir := t.TempDir()
+	tmplPath := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{AdminPw}}"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	res := domain.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
+	printPlan("/cfg", "admin", config.Config{}, res, runFlags{}, []string{"admin", "{{cfg}}"})
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	out := string(buf[:n])
+
+	if !strings.Contains(out, "Templates (placeholder ← rendered file):") {
+		t.Errorf("missing templates block:\n%s", out)
+	}
+	if !strings.Contains(out, "(uses: AdminPw)") {
+		t.Errorf("missing template titles:\n%s", out)
+	}
+	if !strings.Contains(out, "<file with cfg>") {
+		t.Errorf("command line should mask the template file:\n%s", out)
 	}
 }

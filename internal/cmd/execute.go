@@ -85,7 +85,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
   kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
            [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-           [--askpass=name] [--dry-run] -- <cmd> [args...]
+           [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
   kdbx-cli config [--config <path>] [-y]
   kdbx-cli check  [--config <path>] [-y]
   kdbx-cli show   [--config <path>]
@@ -123,6 +123,10 @@ Flags:
   --secret-file=name,...   Expose each secret as a file and substitute its path
                            for the {{name}} placeholder in <cmd>
                            (restic --password-file {{name}})
+  --template=name:path,... Render the file at path, replacing every {{Title}}
+                           found in its content with the secret's value, then
+                           substitute its path for the {{name}} placeholder in
+                           <cmd> (paths ending in .json are JSON-escaped)
   --askpass=name           Serve this secret through an askpass helper for
                            commands that only read from the terminal; sets
                            SSH_ASKPASS, SUDO_ASKPASS, GIT_ASKPASS,

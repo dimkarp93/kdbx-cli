@@ -102,7 +102,7 @@ func TestBuildStoreViews(t *testing.T) {
 
 func TestResolveDeliveryModes(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: "/s", Stdin: []string{"D1"}, Files: []string{"F1"}, Askpass: "A1"},
+		"default": {KeyStore: "/s", Stdin: []string{"D1"}, Files: []string{"F1"}, Templates: []config.Template{{Name: "T1", Path: "/t1"}}, Askpass: "A1"},
 		"docker":  {Stdin: []string{"D2", "D3"}},
 	}}
 
@@ -113,16 +113,22 @@ func TestResolveDeliveryModes(t *testing.T) {
 	if !reflect.DeepEqual(r.Files, []string{"F1"}) {
 		t.Errorf("files: got %v", r.Files)
 	}
+	if !reflect.DeepEqual(r.Templates, []config.Template{{Name: "T1", Path: "/t1"}}) {
+		t.Errorf("templates: got %v", r.Templates)
+	}
 	if r.Askpass != "A1" {
 		t.Errorf("askpass: got %q", r.Askpass)
 	}
 
-	r = Resolve(cfg, "docker", Overrides{Stdin: []string{"D4"}, StdinKeepOpen: true, Askpass: "A2"})
+	r = Resolve(cfg, "docker", Overrides{Stdin: []string{"D4"}, StdinKeepOpen: true, Templates: []config.Template{{Name: "T2", Path: "/t2"}}, Askpass: "A2"})
 	if !reflect.DeepEqual(r.Stdin, []string{"D4"}) {
 		t.Errorf("stdin override: got %v", r.Stdin)
 	}
 	if !r.StdinKeepOpen {
 		t.Error("stdinKeepOpen override was lost")
+	}
+	if !reflect.DeepEqual(r.Templates, []config.Template{{Name: "T2", Path: "/t2"}}) {
+		t.Errorf("templates override: got %v", r.Templates)
 	}
 	if r.Askpass != "A2" {
 		t.Errorf("askpass override: got %q", r.Askpass)
@@ -144,14 +150,35 @@ func TestAllTitlesDeduplicates(t *testing.T) {
 }
 
 func TestAggregateStoresCoversAllChannels(t *testing.T) {
+	dir := t.TempDir()
+	tmplPath := filepath.Join(dir, "settings.json.tmpl")
+	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{T}}"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/s"},
 		"docker":  {Stdin: []string{"D"}},
 		"restic":  {Files: []string{"F"}},
+		"admin":   {Templates: []config.Template{{Name: "cfg", Path: tmplPath}}},
 		"ssh":     {Askpass: "A"},
 	}}
 	got := AggregateStores(cfg)["/s"]
-	if !reflect.DeepEqual(got, []string{"A", "D", "F"}) {
+	if !reflect.DeepEqual(got, []string{"A", "D", "F", "T"}) {
 		t.Errorf("got %v", got)
+	}
+}
+
+func TestAggregateStoreMappingsChannelTemplate(t *testing.T) {
+	dir := t.TempDir()
+	tmplPath := filepath.Join(dir, "settings.json.tmpl")
+	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{AdminPw}}"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Sections: map[string]config.Section{
+		"admin": {KeyStore: "/s", Templates: []config.Template{{Name: "cfg", Path: tmplPath}}},
+	}}
+	mappings := AggregateStoreMappings(cfg)["/s"]
+	if len(mappings) != 1 || mappings[0].Name != "AdminPw" || mappings[0].Env != ChannelTemplate {
+		t.Errorf("got %+v", mappings)
 	}
 }

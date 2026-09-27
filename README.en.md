@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/dimkarp93/install/master/install.sh
 ```
 kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
          [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-         [--askpass=name] [--dry-run] -- <cmd> [args...]
+         [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
 kdbx-cli config [--config <path>]
 kdbx-cli version | --version | -v
 ```
@@ -55,6 +55,7 @@ Flags:
 - `--stdin=name,...` — write the secrets to the command's stdin, one per line in the given order, then close it.
 - `--stdin-keep-open` — keep stdin open after the secrets and pass the rest of our own stdin through.
 - `--secret-file=name,...` — expose the secret as a file and substitute its path for the `{{name}}` placeholder in the command.
+- `--template=name:path,...` — render the file at `path` (every `{{Title}}` found in its content is replaced with that secret's value), expose the result as a file, and substitute its path for the `{{name}}` placeholder in the command; paths ending in `.json` are JSON-escaped.
 - `--askpass=name` — serve the secret through an askpass helper (for commands that only read from the terminal).
 - `--dry-run` — do not run the command and do not touch the store: print the resolved plan (see below).
 
@@ -98,6 +99,7 @@ The config is a JSON object with the fields `sections` (a set of sections named 
 - `stdin` — the list of secrets written to the command's stdin (the `--stdin` counterpart);
 - `stdin-keep-open` — `true` to keep stdin open after the secrets (the `--stdin-keep-open` counterpart);
 - `files` — the list of secrets handed over as files through the `{{Title}}` placeholder (the `--secret-file` counterpart);
+- `templates` — the list of `{name, path}` entries: files rendered with secrets interpolated into their content (the `--template` counterpart);
 - `askpass` — a single secret served through the askpass helper (the `--askpass` counterpart).
 
 Every delivery channel can be set up both from a flag and from the config — the flags merely override the config, there is no CLI-only channel. See [Delivery channels](#delivery-channels) for the details.
@@ -129,7 +131,7 @@ The "secret name" in the config is the **Title** of an entry in the `.kdbx`, and
 
 ## Delivery channels
 
-Not every tool reads its secret from the environment. `kdbx-cli` supports four channels; they can be combined in one section.
+Not every tool reads its secret from the environment. `kdbx-cli` supports five channels; they can be combined in one section.
 
 ### `secrets` — environment variables
 
@@ -182,6 +184,24 @@ kdbx-cli --secret-file=ssh-key -- sh -c \
   sh '{{ssh-key}}'
 ```
 
+### `templates` — a file rendered with secrets
+
+`files` exposes a single secret as a whole file; `templates` renders an existing local file, replacing every `{{Title}}` found in its **content** (not the placeholder in the command — that one is still `{{name}}`) with the value of the matching secret. The rendered result goes into the same kind of anonymous in-memory file (`memfd`) as `files`, and `kdbx-cli` substitutes its `/dev/fd/N` path for the `{{name}}` placeholder in the arguments — the source file on disk is never modified and never holds a real secret.
+
+```sh
+kdbx-cli --template=cfg:settings.json.tmpl -- admin '{{cfg}}'
+```
+
+Given `settings.json.tmpl`:
+
+```json
+{ "user": "Bob", "password": "{{AdminPw}}" }
+```
+
+`kdbx-cli` looks up `AdminPw` in the `.kdbx`, renders the file with the real password in place of `{{AdminPw}}`, and runs `admin /dev/fd/3`. A template can reference several `Title`s; all of them must resolve, or `kdbx-cli` exits with an error before running the command (same as `files` does for an absent `{{name}}` placeholder).
+
+If `path` ends in `.json` (case-insensitive), every interpolated value is **JSON-escaped** — quotes, backslashes and newlines in the secret are encoded so the result stays valid JSON, as long as the placeholder itself sits inside a quoted string in the template (`"password": "{{AdminPw}}"`). For any other extension the value is inserted as-is; put the placeholder where the target format expects a raw value (`.env`, YAML, a plain config file).
+
 ### `askpass` — for commands that only read from the terminal
 
 `ssh`, `sudo` and `git` open `/dev/tty` directly when asking for a password, so writing to stdin does not help. The standard way around it is an askpass helper. `kdbx-cli` creates one and sets `SSH_ASKPASS`, `SSH_ASKPASS_REQUIRE=force`, `SUDO_ASKPASS`, `GIT_ASKPASS`, `GIT_TERMINAL_PROMPT=0`, `RESTIC_PASSWORD_COMMAND` and `BORG_PASSCOMMAND`.
@@ -229,7 +249,7 @@ The layers are applied in the order `default` → tool section → flags, by the
 | --- | --- |
 | `key-store` | replaced when set to a non-empty value |
 | `secrets` | extended entry by entry (on a key collision the later layer wins) |
-| `stdin`, `files` | replaced as a whole: the order of the lines matters, and concatenating the lists would give a surprising result |
+| `stdin`, `files`, `templates` | replaced as a whole: the order of the lines matters, and concatenating the lists would give a surprising result |
 | `stdin-keep-open` | enabled when `true` on at least one layer |
 | `askpass` | replaced when set to a non-empty value |
 
@@ -239,7 +259,7 @@ Hence a few consequences that are easy to miss:
 - A `stdin-keep-open` or `askpass` set in `default` cannot be turned off from a tool section or by a flag — there are no `--no-stdin-keep-open` / `--no-askpass` flags. Keep such settings in the section of the specific tool rather than in `default`.
 - `--secrets` does not disable the mappings from the config; it only adds its own and overrides those with the same name.
 
-To check the result without touching the store or typing a password, use `--dry-run` — it prints the `Stdin`, `Files` and `Askpass` blocks along with the section that was applied:
+To check the result without touching the store or typing a password, use `--dry-run` — it prints the `Stdin`, `Files`, `Templates` and `Askpass` blocks along with the section that was applied:
 
 ```sh
 $ kdbx-cli --dry-run -- restic -r sftp:b:/b --password-file '{{restic-pw}}' snapshots
@@ -259,7 +279,7 @@ Command:
   B2_ACCOUNT_KEY=<secret from B2_KEY> restic -r sftp:b:/b --password-file '<file with restic-pw>' snapshots
 ```
 
-`kdbx-cli check` and `kdbx-cli show` cover the secrets of all four channels.
+`kdbx-cli check` and `kdbx-cli show` cover the secrets of all five channels.
 
 ## The `config` command
 
@@ -279,7 +299,7 @@ A TUI opens in the terminal:
 
 If stdin/stdout is not a terminal (a pipe, a script), `config` falls back to simple line-by-line input without the TUI.
 
-The TUI edits only the `default` section, and only its `key-store`, the `secrets` mappings and the password cache. The `stdin`, `files` and `askpass` channels and the sections of other tools are not configurable there — edit them directly in the JSON config file; saving from the TUI keeps them as they are and overwrites nothing.
+The TUI edits only the `default` section, and only its `key-store`, the `secrets` mappings and the password cache. The `stdin`, `files`, `templates` and `askpass` channels and the sections of other tools are not configurable there — edit them directly in the JSON config file; saving from the TUI keeps them as they are and overwrites nothing.
 
 After saving, `config` checks the store of the `default` section:
 
@@ -345,7 +365,7 @@ The password is stored in the **OS keyring** via Secret Service (gnome-keyring /
 
 ## Security limitations
 
-The secret never reaches the command line (`/proc/<pid>/cmdline` is readable by any process) and is never written to disk in plaintext: the file channel uses an anonymous in-memory file, and askpass a FIFO in a `0700` directory.
+The secret never reaches the command line (`/proc/<pid>/cmdline` is readable by any process) and is never written to disk in plaintext: the `files` and `templates` channels use an anonymous in-memory file, and askpass a FIFO in a `0700` directory. `templates` never overwrites the source template file — it only reads it.
 
 In the `secrets` channel, though, `kdbx-cli` injects secrets into the environment of a child process, and a process's env variables are readable via `/proc/<pid>/environ` by the same user (and root). This is the common tradeoff of this whole class of tools (`op run`, `envchain`, `aws-vault`) — but it is radically safer than keeping secrets in the shell history or in plaintext files. If you need protection from neighbouring processes of the same user reading the environment, this approach (like its analogues) is not suitable.
 

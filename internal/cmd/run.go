@@ -50,6 +50,21 @@ func cmdRun(flags runFlags, child []string) int {
 		return 1
 	}
 	titles := res.AllTitles()
+	tmplTitles, err := res.TemplateTitles()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	seenTitles := make(map[string]bool, len(titles))
+	for _, name := range titles {
+		seenTitles[name] = true
+	}
+	for _, name := range tmplTitles {
+		if !seenTitles[name] {
+			seenTitles[name] = true
+			titles = append(titles, name)
+		}
+	}
 	if len(titles) == 0 {
 		fmt.Fprintf(os.Stderr, "no secrets configured for %q in %s (or via flags)\n", tool, cfgPath)
 		return 1
@@ -119,11 +134,11 @@ func cmdRun(flags runFlags, child []string) int {
 
 	args := child
 	var extraFiles []*os.File
-	if len(res.Files) > 0 || res.Askpass != "" {
+	if len(res.Files) > 0 || len(res.Templates) > 0 || res.Askpass != "" {
 		pipes := secretpipe.NewSet()
 		defer pipes.Close()
 
-		paths := make(map[string]string, len(res.Files))
+		paths := make(map[string]string, len(res.Files)+len(res.Templates))
 		for _, name := range res.Files {
 			f, err := pipes.File(name, values[name])
 			if err != nil {
@@ -132,6 +147,21 @@ func cmdRun(flags runFlags, child []string) int {
 			}
 			defer f.Close()
 			paths[name] = fmt.Sprintf("/dev/fd/%d", firstExtraFD+len(extraFiles))
+			extraFiles = append(extraFiles, f)
+		}
+		for _, t := range res.Templates {
+			rendered, err := domain.RenderTemplate(t.Path, values)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			f, err := pipes.File(t.Name, string(rendered))
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			defer f.Close()
+			paths[t.Name] = fmt.Sprintf("/dev/fd/%d", firstExtraFD+len(extraFiles))
 			extraFiles = append(extraFiles, f)
 		}
 		args, err = substitutePlaceholders(child, paths)

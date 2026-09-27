@@ -73,6 +73,14 @@ func renderCommand(mappings []envSecret, files []string, child []string) string 
 	return strings.Join(parts, " ")
 }
 
+func templateNames(templates []config.Template) []string {
+	out := make([]string, len(templates))
+	for i, t := range templates {
+		out[i] = t.Name
+	}
+	return out
+}
+
 func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, flags runFlags, child []string) {
 	out := os.Stdout
 	fmt.Fprintln(out, "Dry run — the command will NOT be executed.")
@@ -133,6 +141,19 @@ func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, fla
 		}
 	}
 
+	if len(res.Templates) > 0 {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Templates (placeholder ← rendered file):")
+		for _, t := range res.Templates {
+			titles, err := domain.TemplateTitles(t.Path)
+			if err != nil {
+				fmt.Fprintf(out, "  %s ← %s  (template file not found)\n", placeholder(t.Name), t.Path)
+				continue
+			}
+			fmt.Fprintf(out, "  %s ← %s  (uses: %s)\n", placeholder(t.Name), t.Path, strings.Join(titles, ", "))
+		}
+	}
+
 	if res.Askpass != "" {
 		fmt.Fprintln(out)
 		fmt.Fprintf(out, "Askpass:      %s\n", res.Askpass)
@@ -141,5 +162,6 @@ func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, fla
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Command:")
-	fmt.Fprintf(out, "  %s\n", renderCommand(mappings, res.Files, child))
+	fileLikeNames := append(append([]string{}, res.Files...), templateNames(res.Templates)...)
+	fmt.Fprintf(out, "  %s\n", renderCommand(mappings, fileLikeNames, child))
 }
