@@ -41,7 +41,7 @@ github.com/clipperhouse/uax29/v2/graphemes
 # github.com/danieljoos/wincred v1.2.3
 ## explicit; go 1.18
 github.com/danieljoos/wincred
-# github.com/dimkarp93/install-libs v0.3.0
+# github.com/dimkarp93/install-libs v0.4.0
 ## explicit; go 1.24
 github.com/dimkarp93/install-libs/buildinfo
 github.com/dimkarp93/install-libs/shellcomplete

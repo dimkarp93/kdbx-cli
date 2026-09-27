@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/install-libs/buildinfo"
+	"github.com/dimkarp93/install-libs/xdgpath"
 )
 
 func Execute(info buildinfo.Info) {
@@ -21,6 +22,10 @@ func Execute(info buildinfo.Info) {
 
 	if code, ok := completionSpec.Handle(os.Stdout, os.Stderr, args); ok {
 		os.Exit(code)
+	}
+
+	if xdgpath.NewPaths(pathEntries()...).HandlePath(os.Stdout, args) {
+		return
 	}
 
 	switch args[0] {
@@ -142,6 +147,8 @@ Flags:
                            key-store, prompt for a password, or run the command
   -y, --yes                For config/check: assume yes (create missing
                            key-stores and empty secrets without prompting)
+  --path                   Print every path this tool uses: the config file
+                           and each section's key-store
 
 The first word of <cmd> selects the config section (falling back to "default").
 Requires keepassxc-cli in PATH.
