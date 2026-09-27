@@ -19,6 +19,10 @@ func Execute(info buildinfo.Info) {
 		return
 	}
 
+	if code, ok := completionSpec.Handle(os.Stdout, os.Stderr, args); ok {
+		os.Exit(code)
+	}
+
 	switch args[0] {
 	case "help", "--help", "-h":
 		usage()
@@ -90,6 +94,8 @@ func usage() {
   kdbx-cli check  [--config <path>] [-y]
   kdbx-cli show   [--config <path>]
   kdbx-cli forget [--config <path>]
+  kdbx-cli completion bash|zsh
+  kdbx-cli install-completions|uninstall-completions [bash|zsh|all]
   kdbx-cli version | --version | -v | --origin | --buildinfo
 
 Runs <cmd> with secrets from a .kdbx key-store delivered through environment

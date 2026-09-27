@@ -44,6 +44,7 @@ github.com/danieljoos/wincred
 # github.com/dimkarp93/install-libs v0.3.0
 ## explicit; go 1.24
 github.com/dimkarp93/install-libs/buildinfo
+github.com/dimkarp93/install-libs/shellcomplete
 github.com/dimkarp93/install-libs/xdgpath
 # github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f
 ## explicit; go 1.16
