@@ -39,6 +39,10 @@ func cmdRun(flags runFlags, child []string) int {
 
 	tool := filepath.Base(child[0])
 	res := domain.Resolve(cfg, tool, flags.overrides())
+	if err := domain.ValidateEnvNames(res.Secrets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 
 	if flags.dryRun {
 		printPlan(cfgPath, tool, cfg, res, flags, child)
@@ -115,7 +119,7 @@ func cmdRun(flags runFlags, child []string) int {
 	sort.Strings(envNames)
 	env := os.Environ()
 	for _, name := range envNames {
-		env = append(env, res.Secrets[name]+"="+values[name])
+		env = append(env, name+"="+values[res.Secrets[name]])
 	}
 
 	stdin := io.Reader(os.Stdin)

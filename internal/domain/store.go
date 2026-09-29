@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"sort"
 
@@ -52,8 +51,14 @@ func AggregateStores(cfg config.Config) map[string][]string {
 }
 
 func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
-	sets := map[string]map[string]string{}
+	envPairs := map[string]map[Mapping]bool{}
+	channels := map[string]map[string]string{}
+	sections := make([]string, 0, len(cfg.Sections))
 	for section := range cfg.Sections {
+		sections = append(sections, section)
+	}
+	sort.Strings(sections)
+	for _, section := range sections {
 		res := Resolve(cfg, section, Overrides{})
 		tmplTitles, err := res.TemplateTitles()
 		if err != nil {
@@ -64,34 +69,46 @@ func AggregateStoreMappings(cfg config.Config) map[string][]Mapping {
 			continue
 		}
 		ks := config.ExpandHome(res.KeyStore)
-		if sets[ks] == nil {
-			sets[ks] = map[string]string{}
+		if envPairs[ks] == nil {
+			envPairs[ks] = map[Mapping]bool{}
+			channels[ks] = map[string]string{}
 		}
-		maps.Copy(sets[ks], res.Secrets)
-		for _, name := range res.Stdin {
-			if _, ok := sets[ks][name]; !ok {
-				sets[ks][name] = ChannelStdin
+		for env, name := range res.Secrets {
+			envPairs[ks][Mapping{Name: name, Env: env}] = true
+		}
+		addChannel := func(name, channel string) {
+			if _, ok := channels[ks][name]; !ok {
+				channels[ks][name] = channel
 			}
+		}
+		for _, name := range res.Stdin {
+			addChannel(name, ChannelStdin)
 		}
 		for _, name := range res.Files {
-			if _, ok := sets[ks][name]; !ok {
-				sets[ks][name] = ChannelFile
-			}
+			addChannel(name, ChannelFile)
 		}
 		for _, name := range tmplTitles {
-			if _, ok := sets[ks][name]; !ok {
-				sets[ks][name] = ChannelTemplate
-			}
+			addChannel(name, ChannelTemplate)
 		}
 		if res.Askpass != "" {
-			if _, ok := sets[ks][res.Askpass]; !ok {
-				sets[ks][res.Askpass] = ChannelAskpass
-			}
+			addChannel(res.Askpass, ChannelAskpass)
 		}
 	}
-	out := make(map[string][]Mapping, len(sets))
-	for ks, m := range sets {
-		out[ks] = MappingsFromMap(m)
+	out := make(map[string][]Mapping, len(envPairs))
+	for ks, set := range envPairs {
+		hasEnv := map[string]bool{}
+		pairs := make([]Mapping, 0, len(set)+len(channels[ks]))
+		for p := range set {
+			hasEnv[p.Name] = true
+			pairs = append(pairs, p)
+		}
+		for name, channel := range channels[ks] {
+			if !hasEnv[name] {
+				pairs = append(pairs, Mapping{Name: name, Env: channel})
+			}
+		}
+		SortMappings(pairs)
+		out[ks] = pairs
 	}
 	return out
 }

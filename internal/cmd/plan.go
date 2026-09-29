@@ -17,7 +17,7 @@ type envSecret struct {
 
 func sortedMappings(secrets map[string]string) []envSecret {
 	out := make([]envSecret, 0, len(secrets))
-	for name, env := range secrets {
+	for env, name := range secrets {
 		out = append(out, envSecret{env: env, name: name})
 	}
 	sort.Slice(out, func(i, j int) bool {

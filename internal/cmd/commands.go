@@ -134,18 +134,11 @@ func configFallback(keyStore string, pairs []domain.Mapping) (string, []domain.M
 	return keyStore, domain.MappingsFromMap(m)
 }
 
-func formatSecrets(m map[string]string) string {
-	if len(m) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+":"+m[k])
+func formatSecrets(envToName map[string]string) string {
+	pairs := domain.MappingsFromMap(envToName)
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		parts = append(parts, p.Name+":"+p.Env)
 	}
 	return strings.Join(parts, ",")
 }

@@ -141,7 +141,7 @@ func mergeSecretsFlag(dst map[string]string, spec string) error {
 		if name == "" || env == "" {
 			return fmt.Errorf("invalid secrets entry %q (expected name:env)", part)
 		}
-		dst[name] = env
+		dst[env] = name
 	}
 	return nil
 }

@@ -1,27 +1,57 @@
 package domain
 
-import "sort"
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+)
 
 type Mapping struct {
 	Name string
 	Env  string
 }
 
-func MappingsFromMap(m map[string]string) []Mapping {
-	out := make([]Mapping, 0, len(m))
-	for name, env := range m {
+func SortMappings(pairs []Mapping) {
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].Name != pairs[j].Name {
+			return pairs[i].Name < pairs[j].Name
+		}
+		return pairs[i].Env < pairs[j].Env
+	})
+}
+
+func MappingsFromMap(envToName map[string]string) []Mapping {
+	out := make([]Mapping, 0, len(envToName))
+	for env, name := range envToName {
 		out = append(out, Mapping{Name: name, Env: env})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	SortMappings(out)
 	return out
 }
 
 func MappingsToMap(pairs []Mapping) map[string]string {
 	m := make(map[string]string, len(pairs))
 	for _, p := range pairs {
-		m[p.Name] = p.Env
+		m[p.Env] = p.Name
 	}
 	return m
+}
+
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func ValidateEnvNames(envToName map[string]string) error {
+	var invalid []string
+	for env := range envToName {
+		if !envNamePattern.MatchString(env) {
+			invalid = append(invalid, fmt.Sprintf("%q", env))
+		}
+	}
+	if len(invalid) == 0 {
+		return nil
+	}
+	sort.Strings(invalid)
+	return fmt.Errorf("invalid env variable name(s): %s", strings.Join(invalid, ", "))
 }
 
 const (

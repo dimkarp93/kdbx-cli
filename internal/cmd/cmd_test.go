@@ -57,7 +57,7 @@ func TestParseRunFlags(t *testing.T) {
 	if f.keyStore != "/k" {
 		t.Errorf("keyStore: got %q", f.keyStore)
 	}
-	want := map[string]string{"A": "AA", "B": "BB", "C": "CC"}
+	want := map[string]string{"AA": "A", "BB": "B", "CC": "C"}
 	if !reflect.DeepEqual(f.secrets, want) {
 		t.Errorf("secrets: got %v, want %v", f.secrets, want)
 	}
@@ -121,10 +121,10 @@ func TestTemplateNames(t *testing.T) {
 
 func TestMergeSecretsFlag(t *testing.T) {
 	m := map[string]string{}
-	if err := mergeSecretsFlag(m, "Group/Sub/Title:ENV, X:Y ,"); err != nil {
+	if err := mergeSecretsFlag(m, "Group/Sub/Title:ENV, X:Y , Group/Sub/Title:ENV2"); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"Group/Sub/Title": "ENV", "X": "Y"}
+	want := map[string]string{"ENV": "Group/Sub/Title", "ENV2": "Group/Sub/Title", "Y": "X"}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("got %v, want %v", m, want)
 	}
@@ -151,7 +151,7 @@ func TestDescribeSection(t *testing.T) {
 }
 
 func TestRenderCommand(t *testing.T) {
-	secrets := map[string]string{"GITHUB_TOKEN": "GH_TOKEN", "NPM_TOKEN": "NPM_TOKEN"}
+	secrets := map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "NPM_TOKEN": "NPM_TOKEN"}
 	got := renderCommand(sortedMappings(secrets), nil, []string{"install", "arg with spaces", "plain"})
 	want := "GH_TOKEN=<secret from GITHUB_TOKEN> NPM_TOKEN=<secret from NPM_TOKEN> install 'arg with spaces' plain"
 	if got != want {
@@ -223,12 +223,28 @@ func TestCommitEditAddSortAndDuplicate(t *testing.T) {
 
 	m.mode = modeEdit
 	m.editIndex = -1
-	m.name.SetValue("B")
-	m.env.SetValue("9")
+	m.name.SetValue("C")
+	m.env.SetValue("2")
 	res, _ = m.commitEdit()
 	dup := res.(configTUI)
 	if dup.err == "" || dup.mode != modeEdit {
-		t.Errorf("expected duplicate error and stay in edit, err=%q mode=%v", dup.err, dup.mode)
+		t.Errorf("expected duplicate env error and stay in edit, err=%q mode=%v", dup.err, dup.mode)
+	}
+}
+
+func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
+	m := newConfigTUI("", []domain.Mapping{{Name: "B", Env: "2"}}, nil)
+	m.mode = modeEdit
+	m.editIndex = -1
+	m.name.SetValue("B")
+	m.env.SetValue("9")
+	res, _ := m.commitEdit()
+	got := res.(configTUI)
+	if got.err != "" || len(got.pairs) != 2 {
+		t.Fatalf("same secret with another env should be allowed, err=%q pairs=%v", got.err, got.pairs)
+	}
+	if got.pairs[got.cursor] != (domain.Mapping{Name: "B", Env: "9"}) {
+		t.Errorf("cursor should point at the new pair, got %v", got.pairs[got.cursor])
 	}
 }
 

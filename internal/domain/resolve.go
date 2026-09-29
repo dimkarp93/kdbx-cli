@@ -89,7 +89,7 @@ func (r Resolved) AllTitles() []string {
 		seen[name] = true
 		out = append(out, name)
 	}
-	for name := range r.Secrets {
+	for _, name := range r.Secrets {
 		add(name)
 	}
 	for _, name := range r.Stdin {

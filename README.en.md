@@ -51,7 +51,7 @@ Flags:
 
 - `--config <path>` — path to the config. Defaults to `~/.config/kdbx-cli/default`.
 - `--key-store <path>` — full path to the `.kdbx` file. Overrides the value from the config.
-- `--secrets=name:env,...` — mapping of secrets to env variables. Merged on top of the config.
+- `--secrets=name:env,...` — mapping of secrets to env variables. Merged on top of the config. Repeat a name with different variables to expose one secret several times (`--secrets=db/password:PGPASSWORD,db/password:DB_PASS`).
 - `--stdin=name,...` — write the secrets to the command's stdin, one per line in the given order, then close it.
 - `--stdin-keep-open` — keep stdin open after the secrets and pass the rest of our own stdin through.
 - `--secret-file=name,...` — expose the secret as a file and substitute its path for the `{{name}}` placeholder in the command.
@@ -95,7 +95,7 @@ Command:
 The config is a JSON object with the fields `sections` (a set of sections named after tools plus `default`) and an optional `cached` (see [Password caching](#password-caching)). Every section has:
 
 - `key-store` — full path to the `.kdbx` file;
-- `secrets` — mapping `store_entry_name: env_name`;
+- `secrets` — mapping `env_name: store_entry_name` (the key is unique, so one entry can be exposed under several variables);
 - `stdin` — the list of secrets written to the command's stdin (the `--stdin` counterpart);
 - `stdin-keep-open` — `true` to keep stdin open after the secrets (the `--stdin-keep-open` counterpart);
 - `files` — the list of secrets handed over as files through the `{{Title}}` placeholder (the `--secret-file` counterpart);
@@ -109,7 +109,7 @@ Every delivery channel can be set up both from a flag and from the config — th
   "sections": {
     "default": {
       "key-store": "~/.config/kdbx-cli/store.kdbx",
-      "secrets": { "GITHUB_TOKEN": "GH_TOKEN" }
+      "secrets": { "GH_TOKEN": "GITHUB_TOKEN" }
     },
     "install": {
       "secrets": { "NPM_TOKEN": "NPM_TOKEN" }
@@ -126,7 +126,7 @@ Every delivery channel can be set up both from a flag and from the config — th
 The "secret name" in the config is the **Title** of an entry in the `.kdbx`, and the value substituted is the **Password** field of that entry. If the store has several entries with the same Title, specify the full path `Group/Subgroup/Title`:
 
 ```json
-"secrets": { "web/API_KEY": "API_KEY" }
+"secrets": { "API_KEY": "web/API_KEY" }
 ```
 
 ## Delivery channels
@@ -135,7 +135,13 @@ Not every tool reads its secret from the environment. `kdbx-cli` supports five c
 
 ### `secrets` — environment variables
 
-The default channel, described above.
+The default channel, described above. One entry can be exposed under several variables — list each variable as its own key:
+
+```json
+"secrets": { "PGPASSWORD": "db/password", "DB_PASS": "db/password" }
+```
+
+Variable names must match `[A-Za-z_][A-Za-z0-9_]*`, otherwise the run is refused. Every listed variable overrides the same-named variable of the parent environment and is visible to the child process and its descendants, so do not fan a secret out to more names than the tool needs.
 
 ### `stdin` — writing to the command's stdin
 
@@ -235,7 +241,7 @@ Channels combine within one section — `restic`, for example, can take `B2_ACCO
 
 ```json
 "restic": {
-  "secrets": { "B2_KEY": "B2_ACCOUNT_KEY" },
+  "secrets": { "B2_ACCOUNT_KEY": "B2_KEY" },
   "files":   ["restic-pw"],
   "askpass": "ssh-key-pass"
 }
@@ -248,7 +254,7 @@ The layers are applied in the order `default` → tool section → flags, by the
 | Field | How it is applied |
 | --- | --- |
 | `key-store` | replaced when set to a non-empty value |
-| `secrets` | extended entry by entry (on a key collision the later layer wins) |
+| `secrets` | extended entry by entry by variable name (on a variable collision the later layer wins) |
 | `stdin`, `files`, `templates` | replaced as a whole: the order of the lines matters, and concatenating the lists would give a surprising result |
 | `stdin-keep-open` | enabled when `true` on at least one layer |
 | `askpass` | replaced when set to a non-empty value |
@@ -257,7 +263,7 @@ Hence a few consequences that are easy to miss:
 
 - `--stdin=a --stdin=b` in one invocation accumulate into `a,b`, but together they replace the whole `stdin` list from the config instead of extending it. The same goes for `--secret-file`.
 - A `stdin-keep-open` or `askpass` set in `default` cannot be turned off from a tool section or by a flag — there are no `--no-stdin-keep-open` / `--no-askpass` flags. Keep such settings in the section of the specific tool rather than in `default`.
-- `--secrets` does not disable the mappings from the config; it only adds its own and overrides those with the same name.
+- `--secrets` does not disable the mappings from the config; it only adds its own and overrides those with the same variable name.
 
 To check the result without touching the store or typing a password, use `--dry-run` — it prints the `Stdin`, `Files`, `Templates` and `Askpass` blocks along with the section that was applied:
 

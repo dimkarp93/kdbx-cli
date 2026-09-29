@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
@@ -12,15 +13,15 @@ import (
 
 func TestResolveMerge(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: "~/store.kdbx", Secrets: map[string]string{"GITHUB_TOKEN": "GH_TOKEN", "SHARED": "SHARED_ENV"}},
-		"install": {Secrets: map[string]string{"NPM_TOKEN": "NPM_TOKEN", "SHARED": "OVERRIDE"}},
+		"default": {KeyStore: "~/store.kdbx", Secrets: map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "SHARED_ENV": "SHARED"}},
+		"install": {Secrets: map[string]string{"NPM_TOKEN": "NPM_TOKEN", "SHARED_ENV": "OVERRIDE", "SHARED_COPY": "SHARED"}},
 	}}
 
 	r := Resolve(cfg, "install", Overrides{})
 	if r.KeyStore != "~/store.kdbx" {
 		t.Errorf("keyStore: got %q", r.KeyStore)
 	}
-	want := map[string]string{"GITHUB_TOKEN": "GH_TOKEN", "SHARED": "OVERRIDE", "NPM_TOKEN": "NPM_TOKEN"}
+	want := map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "SHARED_ENV": "OVERRIDE", "SHARED_COPY": "SHARED", "NPM_TOKEN": "NPM_TOKEN"}
 	if !reflect.DeepEqual(r.Secrets, want) {
 		t.Errorf("secrets: got %v, want %v", r.Secrets, want)
 	}
@@ -28,22 +29,22 @@ func TestResolveMerge(t *testing.T) {
 
 func TestResolveFlagsOverride(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: "/from-cfg", Secrets: map[string]string{"A": "A1"}},
+		"default": {KeyStore: "/from-cfg", Secrets: map[string]string{"E1": "A"}},
 	}}
-	r := Resolve(cfg, "unknown-tool", Overrides{KeyStore: "/from-flag", Secrets: map[string]string{"A": "A2", "B": "B1"}})
+	r := Resolve(cfg, "unknown-tool", Overrides{KeyStore: "/from-flag", Secrets: map[string]string{"E1": "A2", "E2": "B"}})
 	if r.KeyStore != "/from-flag" {
 		t.Errorf("keyStore: got %q", r.KeyStore)
 	}
-	want := map[string]string{"A": "A2", "B": "B1"}
+	want := map[string]string{"E1": "A2", "E2": "B"}
 	if !reflect.DeepEqual(r.Secrets, want) {
 		t.Errorf("secrets: got %v, want %v", r.Secrets, want)
 	}
 }
 
 func TestMappingsRoundTrip(t *testing.T) {
-	m := map[string]string{"B": "2", "A": "1", "C": "3"}
+	m := map[string]string{"2": "B", "1": "A", "3": "C", "4": "A"}
 	pairs := MappingsFromMap(m)
-	if pairs[0].Name != "A" || pairs[1].Name != "B" || pairs[2].Name != "C" {
+	if pairs[0] != (Mapping{Name: "A", Env: "1"}) || pairs[1] != (Mapping{Name: "A", Env: "4"}) || pairs[2].Name != "B" || pairs[3].Name != "C" {
 		t.Errorf("not sorted by name: %v", pairs)
 	}
 	if !reflect.DeepEqual(MappingsToMap(pairs), m) {
@@ -53,9 +54,9 @@ func TestMappingsRoundTrip(t *testing.T) {
 
 func TestAggregateStores(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: "/a.kdbx", Secrets: map[string]string{"GITHUB_TOKEN": "GH"}},
-		"install": {Secrets: map[string]string{"NPM_TOKEN": "NPM"}},
-		"deploy":  {KeyStore: "/b.kdbx", Secrets: map[string]string{"AWS_KEY": "AWS"}},
+		"default": {KeyStore: "/a.kdbx", Secrets: map[string]string{"GH": "GITHUB_TOKEN", "GH_COPY": "GITHUB_TOKEN"}},
+		"install": {Secrets: map[string]string{"NPM": "NPM_TOKEN"}},
+		"deploy":  {KeyStore: "/b.kdbx", Secrets: map[string]string{"AWS": "AWS_KEY"}},
 	}}
 	got := AggregateStores(cfg)
 
@@ -78,8 +79,8 @@ func TestBuildStoreViews(t *testing.T) {
 	missing := filepath.Join(dir, "absent.kdbx")
 
 	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: existing, Secrets: map[string]string{"GITHUB_TOKEN": "GH"}},
-		"deploy":  {KeyStore: missing, Secrets: map[string]string{"AWS_KEY": "AWS"}},
+		"default": {KeyStore: existing, Secrets: map[string]string{"GH": "GITHUB_TOKEN"}},
+		"deploy":  {KeyStore: missing, Secrets: map[string]string{"AWS": "AWS_KEY"}},
 	}}
 	views := BuildStoreViews(cfg)
 	if len(views) != 2 {
@@ -137,7 +138,7 @@ func TestResolveDeliveryModes(t *testing.T) {
 
 func TestAllTitlesDeduplicates(t *testing.T) {
 	r := Resolved{
-		Secrets: map[string]string{"T": "ENV"},
+		Secrets: map[string]string{"ENV": "T", "ENV2": "T"},
 		Stdin:   []string{"T", "S"},
 		Files:   []string{"S", "F"},
 		Askpass: "F",
@@ -180,5 +181,34 @@ func TestAggregateStoreMappingsChannelTemplate(t *testing.T) {
 	mappings := AggregateStoreMappings(cfg)["/s"]
 	if len(mappings) != 1 || mappings[0].Name != "AdminPw" || mappings[0].Env != ChannelTemplate {
 		t.Errorf("got %+v", mappings)
+	}
+}
+
+func TestAggregateStoreMappingsMultipleEnvPerSecret(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: "/s", Secrets: map[string]string{"A_ENV": "T", "B_ENV": "T"}, Stdin: []string{"T", "U"}},
+	}}
+	got := AggregateStoreMappings(cfg)["/s"]
+	want := []Mapping{{Name: "T", Env: "A_ENV"}, {Name: "T", Env: "B_ENV"}, {Name: "U", Env: ChannelStdin}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestValidateEnvNames(t *testing.T) {
+	if err := ValidateEnvNames(map[string]string{"GOOD_1": "a", "_ok": "b"}); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	err := ValidateEnvNames(map[string]string{"1BAD": "a", "A=B": "b", "": "c", "OK": "d"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, name := range []string{`"1BAD"`, `"A=B"`, `""`} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not mention %s", err, name)
+		}
+	}
+	if strings.Contains(err.Error(), `"OK"`) {
+		t.Errorf("error %q mentions valid name", err)
 	}
 }

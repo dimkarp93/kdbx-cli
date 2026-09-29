@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -319,8 +318,8 @@ func (m configTUI) commitEdit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	for i, p := range m.pairs {
-		if p.Name == name && i != m.editIndex {
-			m.err = fmt.Sprintf("secret %q is already mapped", name)
+		if p.Env == env && i != m.editIndex {
+			m.err = fmt.Sprintf("env %q is already mapped", env)
 			return m, nil
 		}
 	}
@@ -329,9 +328,9 @@ func (m configTUI) commitEdit() (tea.Model, tea.Cmd) {
 	} else {
 		m.pairs = append(m.pairs, domain.Mapping{Name: name, Env: env})
 	}
-	sort.Slice(m.pairs, func(i, j int) bool { return m.pairs[i].Name < m.pairs[j].Name })
+	domain.SortMappings(m.pairs)
 	for i, p := range m.pairs {
-		if p.Name == name {
+		if p.Name == name && p.Env == env {
 			m.cursor = i
 			break
 		}
