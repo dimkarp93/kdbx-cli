@@ -48,6 +48,10 @@ func Execute(info buildinfo.Info) {
 		path, _ := parseConfigArgs("forget", args[1:])
 		cmdForget(path)
 		return
+	case "migrate":
+		path, from, to := parseMigrateArgs(args[1:])
+		cmdMigrate(path, from, to)
+		return
 	}
 
 	left, child, hasSep := splitArgs(args)
@@ -99,6 +103,7 @@ func usage() {
   kdbx-cli check  [--config <path>] [-y]
   kdbx-cli show   [--config <path>]
   kdbx-cli forget [--config <path>]
+  kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
   kdbx-cli completion bash|zsh
   kdbx-cli install-completions|uninstall-completions [bash|zsh|all]
   kdbx-cli version | --version | -v | --origin | --buildinfo
@@ -116,6 +121,9 @@ Commands:
            to open the selected .kdbx in the KeePassXC GUI.
   forget   Clear cached key-store passwords (from the OS keyring) for every
            .kdbx referenced by the config.
+
+  migrate  Upgrade the config file to the current schema version
+           (--from defaults to 0, --to to the current version).
 
 Password caching is opt-in via the config's "cached" section
 ({"enabled": true, "ttl": "10m"}); it stores the .kdbx master password in the

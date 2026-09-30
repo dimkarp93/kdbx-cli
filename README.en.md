@@ -92,7 +92,7 @@ Command:
 
 ## Config
 
-The config is a JSON object with the fields `sections` (a set of sections named after tools plus `default`) and an optional `cached` (see [Password caching](#password-caching)). Every section has:
+The config is a JSON object with the required field `version` (the current schema version is `1`), the field `sections` (a set of sections named after tools plus `default`) and an optional `cached` (see [Password caching](#password-caching)). Every section has:
 
 - `key-store` — full path to the `.kdbx` file;
 - `secrets` — mapping `env_name: store_entry_name` (the key is unique, so one entry can be exposed under several variables);
@@ -106,6 +106,7 @@ Every delivery channel can be set up both from a flag and from the config — th
 
 ```json
 {
+  "version": 1,
   "sections": {
     "default": {
       "key-store": "~/.config/kdbx-cli/store.kdbx",
@@ -335,6 +336,20 @@ Missing secrets:
 ```
 
 A password is requested for every `.kdbx` (it is needed both to read and to add entries).
+
+## The `migrate` command
+
+A config without the `version` field (or with a version other than the current one) is not read: every command reports it and suggests `kdbx-cli migrate`. The command upgrades the file to the current schema version in place.
+
+```sh
+kdbx-cli migrate
+kdbx-cli migrate --config ~/.config/kdbx-cli/install_secrets
+kdbx-cli migrate --from 0 --to 1
+```
+
+- `--from` — the version to migrate from (default `0`: a config without `version`); `--to` — the target version (default: the current one).
+- The `0 → 1` migration inverts `secrets` from `entry_name: env_name` to `env_name: entry_name` and adds `version: 1`. If two entries pointed at the same variable, the migration stops with an error and the file is left untouched.
+- If the file is already at the target version, the command says so and exits with 0; if the file's version does not match `--from`, it is an error.
 
 ## The `show` command
 

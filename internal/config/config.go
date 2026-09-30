@@ -27,7 +27,10 @@ type CacheConfig struct {
 	TTL     string `json:"ttl,omitempty"`
 }
 
+const CurrentVersion = 1
+
 type Config struct {
+	Version  int                `json:"version"`
 	Sections map[string]Section `json:"sections"`
 	Cache    *CacheConfig       `json:"cached,omitempty"`
 }
@@ -42,6 +45,9 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
+	if c.Version != CurrentVersion {
+		return Config{}, fmt.Errorf("config %s has version %d, expected %d; run `kdbx-cli migrate`", path, c.Version, CurrentVersion)
+	}
 	if c.Sections == nil {
 		c.Sections = map[string]Section{}
 	}
@@ -55,6 +61,7 @@ func Save(path string, c Config) error {
 	if c.Sections == nil {
 		c.Sections = map[string]Section{}
 	}
+	c.Version = CurrentVersion
 	data, _ := json.MarshalIndent(c, "", "  ")
 	return os.WriteFile(path, append(data, '\n'), 0600)
 }
