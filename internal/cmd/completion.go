@@ -12,6 +12,12 @@ var readOnlyFlags = []shellcomplete.Flag{
 	{Name: "--config", Files: true},
 }
 
+var migrateFlags = []shellcomplete.Flag{
+	{Name: "--config", Files: true},
+	{Name: "--from"},
+	{Name: "--to"},
+}
+
 var completionSpec = shellcomplete.Spec{
 	Bin: "kdbx-cli",
 	Flags: []shellcomplete.Flag{
