@@ -27,7 +27,10 @@ type CacheConfig struct {
 	TTL     string `json:"ttl,omitempty"`
 }
 
+const CurrentVersion = 1
+
 type Config struct {
+	Version  int                `json:"version"`
 	Sections map[string]Section `json:"sections"`
 	Cache    *CacheConfig       `json:"cached,omitempty"`
 }
