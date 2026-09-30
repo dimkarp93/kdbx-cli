@@ -58,6 +58,7 @@ func Save(path string, c Config) error {
 	if c.Sections == nil {
 		c.Sections = map[string]Section{}
 	}
+	c.Version = CurrentVersion
 	data, _ := json.MarshalIndent(c, "", "  ")
 	return os.WriteFile(path, append(data, '\n'), 0600)
 }
