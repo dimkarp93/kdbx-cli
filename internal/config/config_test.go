@@ -10,7 +10,7 @@ import (
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg")
-	if err := os.WriteFile(path, []byte(`{"sections":{"default":{"key-store":"/k.kdbx"}},"cached":{"enabled":true,"ttl":"5m"}}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":1,"sections":{"default":{"key-store":"/k.kdbx"}},"cached":{"enabled":true,"ttl":"5m"}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(path)

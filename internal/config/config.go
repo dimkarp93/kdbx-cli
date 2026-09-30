@@ -45,6 +45,9 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return Config{}, fmt.Errorf("invalid config %s: %w", path, err)
 	}
+	if c.Version != CurrentVersion {
+		return Config{}, fmt.Errorf("config %s has version %d, expected %d; run `kdbx-cli migrate`", path, c.Version, CurrentVersion)
+	}
 	if c.Sections == nil {
 		c.Sections = map[string]Section{}
 	}
