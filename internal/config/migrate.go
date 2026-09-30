@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 )
 
@@ -43,5 +45,36 @@ func migrateV0ToV1(raw map[string]any) error {
 }
 
 func Migrate(path string, from, to int) error {
-	panic("not implemented")
+	if from < 0 || from > to || to > len(steps) {
+		return fmt.Errorf("unsupported migration range %d -> %d (supported: 0 -> %d)", from, to, len(steps))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("invalid config %s: %w", path, err)
+	}
+	version := 0
+	if v, ok := raw["version"].(float64); ok {
+		version = int(v)
+	}
+	if version == to {
+		return ErrAlreadyMigrated
+	}
+	if version != from {
+		return fmt.Errorf("config %s has version %d, but --from is %d", path, version, from)
+	}
+	for v := from; v < to; v++ {
+		if err := steps[v](raw); err != nil {
+			return err
+		}
+		raw["version"] = v + 1
+	}
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(out, '\n'), 0600)
 }
