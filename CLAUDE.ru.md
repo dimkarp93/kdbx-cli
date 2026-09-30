@@ -30,6 +30,7 @@ kdbx-cli config  [--config <path>] [-y]
 kdbx-cli check   [--config <path>] [-y]
 kdbx-cli show    [--config <path>]
 kdbx-cli forget  [--config <path>]
+kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 ```
 
 `--dry-run` печатает разрешённый план (конфиг, секция, маппинги, блоки stdin/files/templates/askpass, итоговая команда с плейсхолдерами `<secret from Title>` и `<file with Title>`) и завершается, не читая хранилище и не запрашивая пароль.
@@ -38,7 +39,9 @@ kdbx-cli forget  [--config <path>]
 
 ## Конфиг и кэш
 
-Схема конфига — struct `Config{ Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string (имя env-переменной → имя записи; ключ уникален, поэтому одна запись может питать несколько переменных), Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string }`, `Template{ Name, Path string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files`/`Templates` заменяются целиком (порядок строк значим). `config.Load` читает только эту схему (программа в разработке, обратной совместимости со старыми форматами нет).
+Схема конфига — struct `Config{ Version int json:"version"; Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string (имя env-переменной → имя записи; ключ уникален, поэтому одна запись может питать несколько переменных), Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string }`, `Template{ Name, Path string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files`/`Templates` заменяются целиком (порядок строк значим). `config.Load` читает только схему текущей версии (`config.CurrentVersion`); конфиг без поля `version` считается версией 0, а любая версия, отличная от текущей, — ошибка с подсказкой запустить `kdbx-cli migrate`.
+
+**Версионирование конфига.** Тулза зарелизилась, поэтому формат конфига меняется только явно: любое несовместимое изменение схемы (переименование/переворот/удаление поля, смена типа) обязано поднять `config.CurrentVersion`, добавить шаг `N → N+1` в `steps` (`internal/config/migrate.go`, работает над сырым JSON) и покрыть его тестом. `config.Save` всегда пишет текущую версию в конфиг. `kdbx-cli migrate [--from N] [--to M]` (по умолчанию `--from=0`, `--to=config.CurrentVersion`) применяет цепочку шагов к файлу на месте; если файл уже на `--to`, это не ошибка, а при несовпадении версии файла с `--from` — ошибка.
 
 Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` в OS-keyring через `github.com/zalando/go-keyring`. `domain.UnlockExport` — единая точка «достать пароль (кэш→prompt) + export»; `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget`) чистит keyring для всех `.kdbx` конфига. keyring-обёртки (`keyringSet/Get/Delete`) — var'ы, стабятся в тестах. Деградирует без Secret Service (miss + warning, не падает).
 
@@ -47,17 +50,18 @@ kdbx-cli forget  [--config <path>]
 Код разбит на пакеты под `internal/` (без циклов: `config`/`keepass`/`term`/`secretpipe` — листья; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term,secretpipe`; корневой `main → cmd`).
 
 - `cmd/kdbx-cli/main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
-- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`; `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
+- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`, `CurrentVersion`, `Migrate` (шаги миграции схемы); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine`, `Run` (вызов `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
 - `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
 - `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
 - `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `TemplateTitles`/`RenderTemplate`/`Resolved.TemplateTitles` (сканирование `{{Title}}` в содержимом шаблона и рендер с JSON-экранированием для путей `.json`), `Mapping`/`MappingsFromMap`/`MappingsToMap`/`SortMappings`/`ValidateEnvNames`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
-  - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`version`/run-режим), `usage`, `parseConfigArgs`.
+  - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`migrate`/`version`/run-режим), `usage`, `parseConfigArgs`.
   - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag` (`name:env` → `dst[env]=name`), `splitTitles`, `parseTemplatesFlag`, тип `runFlags` и его `overrides()`.
   - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
   - `plan.go` — `printPlan` и хелперы dry-run (`describeSection`, `renderCommand`, `shellQuote`).
+  - `migrate.go` — `parseMigrateArgs`, `cmdMigrate`.
   - `commands.go` — `cmdConfig` (TTY → TUI, иначе `configFallback`; после сохранения — `ReconcileStores` для default), `cmdCheck`, `cmdForget`.
   - `tui.go` — Bubble Tea-модель настройки `default`: поле `key-store` с автодополнением пути (`refreshPathSuggestions`, `deleteLastPathSegment` на `alt+backspace`, раскрытие `~` на `tab`), построчный редактор маппингов с хоткеями (`a`/`e`/`d`/`↑↓`/`tab`/`ctrl+s`/`esc`) и легендой.
   - `show.go` — `cmdShow`: read-only TUI (`showTUI`) со списком `.kdbx` (навигация `↑/↓`), `Enter` → открыть в GUI через `openInKeePassXC` (var, стабится в тестах); не-TTY → печать.
