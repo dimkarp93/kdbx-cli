@@ -460,3 +460,13 @@ func TestChildEnvDropsPassword(t *testing.T) {
 		t.Errorf("childEnv: got %v, want %v", got, want)
 	}
 }
+
+func TestTitlesGranted(t *testing.T) {
+	granted := map[string]bool{"A": true, "B": true}
+	if !titlesGranted([]string{"A", "B"}, granted) {
+		t.Error("subset should be granted")
+	}
+	if titlesGranted([]string{"A", "C"}, granted) {
+		t.Error("unknown title must not be granted")
+	}
+}

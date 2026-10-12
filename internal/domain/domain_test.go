@@ -231,3 +231,25 @@ func TestReadNewPassword(t *testing.T) {
 		t.Error("empty password should fail")
 	}
 }
+
+func TestConfiguredTitles(t *testing.T) {
+	dir := t.TempDir()
+	tmpl := filepath.Join(dir, "conf.tmpl")
+	if err := os.WriteFile(tmpl, []byte("token={{TMPL}}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {Secrets: map[string]string{"A": "DEF"}},
+		"tool":    {Stdin: []string{"IN"}, Askpass: "ASK", Templates: []config.Template{{Name: "c", Path: tmpl}}},
+		"other":   {Secrets: map[string]string{"B": "OTHER"}},
+	}}
+	got := ConfiguredTitles(cfg, "tool")
+	for _, name := range []string{"DEF", "IN", "ASK", "TMPL"} {
+		if !got[name] {
+			t.Errorf("%s should be granted: %v", name, got)
+		}
+	}
+	if got["OTHER"] {
+		t.Error("titles of another section must not be granted")
+	}
+}
