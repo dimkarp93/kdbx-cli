@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -139,5 +140,30 @@ func TestStoreKeyIsCanonical(t *testing.T) {
 	}
 	if got := storeKey("/no/such/file.kdbx"); got != keyPrefix+"/no/such/file.kdbx" {
 		t.Errorf("missing file: got %q", got)
+	}
+}
+
+func TestForgetAll(t *testing.T) {
+	fake := withFakeBackend(t)
+	legacyCleared := false
+	origDeleteAll := keyringDeleteAll
+	keyringDeleteAll = func(string) error { legacyCleared = true; return nil }
+	defer func() { keyringDeleteAll = origDeleteAll }()
+
+	c := Cache{enabled: true, ttl: time.Minute}
+	c.Remember("/a.kdbx", "a")
+	c.Remember("/b.kdbx", "b")
+	n, err := ForgetAll()
+	if err != nil || n != 2 {
+		t.Errorf("ForgetAll: n=%d err=%v", n, err)
+	}
+	if len(fake.keys) != 0 {
+		t.Errorf("keys left: %v", fake.keys)
+	}
+	if _, ok := c.Get("/a.kdbx"); ok {
+		t.Error("cache should be empty")
+	}
+	if runtime.GOOS == "linux" && !legacyCleared {
+		t.Error("legacy Secret Service entries should be cleared on Linux")
 	}
 }
