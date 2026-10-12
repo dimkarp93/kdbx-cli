@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type kpFile struct {
@@ -48,13 +50,42 @@ func CheckEngine() string {
 		fmt.Fprintln(os.Stderr, "  macOS:          brew install keepassxc")
 		os.Exit(1)
 	}
+	if err := checkEngineFile(path); err != nil {
+		fmt.Fprintf(os.Stderr, "refusing to run %s: %v\n", path, err)
+		os.Exit(1)
+	}
+	enginePath = path
 	return path
 }
 
 var enginePath string
 
+func checkEngineFile(path string) error {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	for _, p := range []string{filepath.Dir(path), real, filepath.Dir(real)} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return err
+		}
+		if fi.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("%s is writable by group or others", p)
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid != 0 && int(st.Uid) != os.Getuid() {
+			return fmt.Errorf("%s is owned by uid %d", p, st.Uid)
+		}
+	}
+	return nil
+}
+
 func Run(stdinData string, args ...string) (string, error) {
-	cmd := exec.Command("keepassxc-cli", args...)
+	bin := enginePath
+	if bin == "" {
+		bin = CheckEngine()
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Stdin = strings.NewReader(stdinData)
 	out, err := cmd.Output()
 	return string(out), err
