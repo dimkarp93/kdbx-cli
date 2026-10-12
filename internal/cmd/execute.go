@@ -129,7 +129,8 @@ Commands:
 
 Password caching is opt-in via the config's "cached" section
 ({"enabled": true, "ttl": "10m"}); it stores the .kdbx master password in the
-OS keyring (Secret Service). Disabled by default.
+kernel keyring on Linux (the OS keyring elsewhere) and uses it only for the
+secrets the config grants to the command. Disabled by default.
 
 Flags:
   --config <path>          Config file (default: ~/.config/kdbx-cli/default)
