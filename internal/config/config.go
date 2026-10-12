@@ -41,6 +41,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	WarnUnsafePermissions(path)
 
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
