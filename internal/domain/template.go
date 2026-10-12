@@ -6,6 +6,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
 
 var templatePlaceholderRe = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
@@ -42,6 +44,7 @@ func RenderTemplate(path string, values map[string]string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read template %s: %w", path, err)
 	}
+	config.WarnUnsafePermissions(path)
 	jsonEscape := isJSONTemplate(path)
 
 	var missing []string
