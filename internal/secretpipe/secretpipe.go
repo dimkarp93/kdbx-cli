@@ -57,7 +57,11 @@ func (s *Set) Askpass(name, value string, reads int) (string, error) {
 		return "", fmt.Errorf("cannot create fifo for %q: %w", name, err)
 	}
 	script := filepath.Join(s.dir, "askpass.sh")
-	body := "#!/bin/sh\nexec head -n 1 " + shellQuote(fifo) + "\n"
+	body := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"Username*|*'(yes/no'*) exit 1 ;;\n" +
+		"esac\n" +
+		"exec head -n 1 " + shellQuote(fifo) + "\n"
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		return "", err
 	}
