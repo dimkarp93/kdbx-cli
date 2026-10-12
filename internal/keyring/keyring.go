@@ -104,3 +104,7 @@ func (c Cache) Status(keyStore string) CacheStatus {
 	}
 	return CacheStatus{Cached: true, ExpiresIn: remaining}
 }
+
+func ForgetAll() (int, error) {
+	panic("not implemented")
+}

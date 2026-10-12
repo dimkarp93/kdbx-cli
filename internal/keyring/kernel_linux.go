@@ -167,3 +167,7 @@ func (kernelBackend) expiresIn(key string) (time.Duration, bool) {
 	}
 	return 0, false
 }
+
+func dropAllLegacy() {
+	panic("not implemented")
+}

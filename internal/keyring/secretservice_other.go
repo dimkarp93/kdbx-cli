@@ -68,3 +68,5 @@ func (b secretServiceBackend) expiresIn(key string) (time.Duration, bool) {
 	}
 	return remaining, true
 }
+
+func dropAllLegacy() {}
