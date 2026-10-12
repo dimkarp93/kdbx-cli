@@ -9,12 +9,14 @@ import (
 )
 
 func UnlockExport(keyStore string, cache keyring.Cache, prompt string, allowCache bool) (string, string, error) {
-	if pw, ok := cache.Get(keyStore); ok {
-		out, err := keepass.Run(pw+"\n", "export", "-q", "-f", "xml", keyStore)
-		if err == nil {
-			return out, pw, nil
+	if allowCache {
+		if pw, ok := cache.Get(keyStore); ok {
+			out, err := keepass.Run(pw+"\n", "export", "-q", "-f", "xml", keyStore)
+			if err == nil {
+				return out, pw, nil
+			}
+			cache.Forget(keyStore)
 		}
-		cache.Forget(keyStore)
 	}
 
 	pw := term.ReadPassword(prompt)
