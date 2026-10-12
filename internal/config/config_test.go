@@ -90,3 +90,32 @@ func TestSaveWritesCurrentVersion(t *testing.T) {
 		t.Errorf("version missing:\n%s", data)
 	}
 }
+
+func TestPermissionWarnings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "default")
+	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if w := PermissionWarnings(path); len(w) != 0 {
+		t.Errorf("private config: %v", w)
+	}
+	if err := os.Chmod(path, 0666); err != nil {
+		t.Fatal(err)
+	}
+	if w := PermissionWarnings(path); len(w) != 1 {
+		t.Errorf("world-writable file: %v", w)
+	}
+	if err := os.Chmod(dir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if w := PermissionWarnings(path); len(w) != 2 {
+		t.Errorf("world-writable file and dir: %v", w)
+	}
+	if w := PermissionWarnings(filepath.Join(dir, "missing")); len(w) != 1 {
+		t.Errorf("missing file in a world-writable dir: %v", w)
+	}
+}
