@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -77,8 +78,44 @@ func (kernelBackend) forget(key string) error {
 	return invalidateKey(id)
 }
 
+func userKeyringIDs() ([]int, error) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := unix.KeyctlBuffer(unix.KEYCTL_READ, unix.KEY_SPEC_USER_KEYRING, buf, 0)
+		if err != nil {
+			return nil, err
+		}
+		if n <= len(buf) {
+			ids := make([]int, 0, n/4)
+			for i := 0; i+4 <= n; i += 4 {
+				ids = append(ids, int(int32(binary.NativeEndian.Uint32(buf[i:i+4]))))
+			}
+			return ids, nil
+		}
+		buf = make([]byte, n)
+	}
+}
+
 func (kernelBackend) forgetAll() (int, error) {
-	panic("not implemented")
+	ids, err := userKeyringIDs()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, id := range ids {
+		desc, err := unix.KeyctlString(unix.KEYCTL_DESCRIBE, id)
+		if err != nil {
+			continue
+		}
+		parts := strings.SplitN(desc, ";", 5)
+		if len(parts) != 5 || parts[0] != kernelKeyType || !strings.HasPrefix(parts[4], keyPrefix) {
+			continue
+		}
+		if invalidateKey(id) == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 var procKeysPath = "/proc/keys"
