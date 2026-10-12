@@ -54,7 +54,7 @@ func TestAskpassScript(t *testing.T) {
 	s := NewSet()
 	defer s.Close()
 
-	script, err := s.Askpass("pw", "s3cret", 0)
+	script, err := s.Askpass("pw", "s3cret", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,5 +104,47 @@ func TestAskpassDirIsPrivate(t *testing.T) {
 	}
 	if fi.Mode().Perm() != 0700 {
 		t.Errorf("mode: got %o, want 700", fi.Mode().Perm())
+	}
+}
+
+func TestAskpassServesOnceByDefault(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	script, err := s.Askpass("pw", "s3cret", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(script, "Password:").Output()
+	if err != nil || string(out) != "s3cret\n" {
+		t.Fatalf("first call: %q %v", out, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	out, _ = exec.Command(script, "Password:").Output()
+	if string(out) != "" {
+		t.Errorf("second call should get nothing, got %q", out)
+	}
+}
+
+func TestAskpassRefusesUsernameAndHostKeyPrompts(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	script, err := s.Askpass("pw", "s3cret", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{
+		"Username for 'https://example.com': ",
+		"Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
+	} {
+		out, err := exec.Command(script, prompt).Output()
+		if err == nil || len(out) != 0 {
+			t.Errorf("%q: should be refused, got %q err=%v", prompt, out, err)
+		}
+	}
+	out, err := exec.Command(script, "Password for 'https://alice@example.com': ").Output()
+	if err != nil || string(out) != "s3cret\n" {
+		t.Errorf("password prompt after refusals: %q %v", out, err)
 	}
 }

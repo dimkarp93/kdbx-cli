@@ -470,3 +470,19 @@ func TestTitlesGranted(t *testing.T) {
 		t.Error("unknown title must not be granted")
 	}
 }
+
+func TestParseRunFlagsAskpassReads(t *testing.T) {
+	f, err := parseRunFlags([]string{"--askpass=PW", "--askpass-reads=3"})
+	if err != nil || f.askpassReads != 3 || f.overrides().AskpassReads != 3 {
+		t.Errorf("--askpass-reads=3: %+v %v", f, err)
+	}
+	f, err = parseRunFlags([]string{"--askpass-reads", "2"})
+	if err != nil || f.askpassReads != 2 {
+		t.Errorf("--askpass-reads 2: %+v %v", f, err)
+	}
+	for _, bad := range []string{"--askpass-reads=0", "--askpass-reads=-1", "--askpass-reads=x"} {
+		if _, err := parseRunFlags([]string{bad}); err == nil {
+			t.Errorf("%s should fail", bad)
+		}
+	}
+}

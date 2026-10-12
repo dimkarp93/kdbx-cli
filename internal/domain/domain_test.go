@@ -253,3 +253,19 @@ func TestConfiguredTitles(t *testing.T) {
 		t.Error("titles of another section must not be granted")
 	}
 }
+
+func TestResolveAskpassReads(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {AskpassReads: 2},
+		"restic":  {AskpassReads: 4},
+	}}
+	if r := Resolve(cfg, "git", Overrides{}); r.AskpassReads != 2 {
+		t.Errorf("default: %d", r.AskpassReads)
+	}
+	if r := Resolve(cfg, "restic", Overrides{}); r.AskpassReads != 4 {
+		t.Errorf("tool section: %d", r.AskpassReads)
+	}
+	if r := Resolve(cfg, "restic", Overrides{AskpassReads: 7}); r.AskpassReads != 7 {
+		t.Errorf("flag: %d", r.AskpassReads)
+	}
+}
