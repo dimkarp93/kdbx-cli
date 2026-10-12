@@ -24,3 +24,5 @@ func createAnonFile(name string) (*os.File, error) {
 	}
 	return f, nil
 }
+
+func sealAnonFile(f *os.File) error { return nil }

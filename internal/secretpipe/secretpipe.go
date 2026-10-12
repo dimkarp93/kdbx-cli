@@ -41,6 +41,10 @@ func (s *Set) File(name, value string) (*os.File, error) {
 		f.Close()
 		return nil, err
 	}
+	if err := sealAnonFile(f); err != nil {
+		f.Close()
+		return nil, err
+	}
 	if _, err := f.Seek(0, 0); err != nil {
 		f.Close()
 		return nil, err
