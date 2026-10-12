@@ -452,3 +452,11 @@ func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
 		t.Errorf("command line should mask the template file:\n%s", out)
 	}
 }
+
+func TestChildEnvDropsPassword(t *testing.T) {
+	got := childEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
+	want := []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("childEnv: got %v, want %v", got, want)
+	}
+}
