@@ -10,6 +10,7 @@ import (
 )
 
 func Execute(info buildinfo.Info) {
+	hardenProcess()
 	args := os.Args[1:]
 	if len(args) == 0 {
 		usage()
