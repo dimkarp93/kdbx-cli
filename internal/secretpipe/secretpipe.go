@@ -61,6 +61,9 @@ func (s *Set) Askpass(name, value string, reads int) (string, error) {
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		return "", err
 	}
+	if reads <= 0 {
+		reads = DefaultAskpassReads
+	}
 	s.wg.Add(1)
 	go s.feed(fifo, value+"\n", reads)
 	return script, nil
@@ -98,12 +101,14 @@ func (s *Set) makeDir() error {
 // picks up a second copy still sees the right secret.
 func (s *Set) feed(path, value string, reads int) {
 	defer s.wg.Done()
-	for {
+	for served := 0; ; served++ {
 		f, err := openWhenRead(path, s.done)
 		if err != nil {
 			return
 		}
-		f.WriteString(value)
+		if served < reads {
+			f.WriteString(value)
+		}
 		f.Close()
 		select {
 		case <-s.done:
