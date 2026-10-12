@@ -119,8 +119,8 @@ Commands:
            offer to add the missing ones as empty entries.
   show     Display the config; navigate key-stores with ↑/↓ and press Enter
            to open the selected .kdbx in the KeePassXC GUI.
-  forget   Clear cached key-store passwords (from the OS keyring) for every
-           .kdbx referenced by the config.
+  forget   Clear every cached key-store password, including stores no
+           longer referenced by the config.
 
   migrate  Upgrade the config file to the current schema version
            (--from defaults to 0, --to to the current version).
