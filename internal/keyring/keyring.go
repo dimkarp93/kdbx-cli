@@ -17,10 +17,27 @@ const (
 )
 
 var (
-	keyringSet    = keyring.Set
-	keyringGet    = keyring.Get
-	keyringDelete = keyring.Delete
+	keyringSet       = keyring.Set
+	keyringGet       = keyring.Get
+	keyringDelete    = keyring.Delete
+	keyringDeleteAll = keyring.DeleteAll
 )
+
+type backend interface {
+	get(key string) (string, error)
+	set(key, password string, ttl time.Duration) error
+	forget(key string) error
+	forgetAll() (int, error)
+	expiresIn(key string) (time.Duration, bool)
+}
+
+var store backend
+
+const keyPrefix = keyringService + ":"
+
+func storeKey(keyStore string) string {
+	panic("not implemented")
+}
 
 type cachedSecret struct {
 	Password string `json:"password"`
