@@ -148,3 +148,26 @@ func TestAskpassRefusesUsernameAndHostKeyPrompts(t *testing.T) {
 		t.Errorf("password prompt after refusals: %q %v", out, err)
 	}
 }
+
+func TestFileIsSealed(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	f, err := s.File("pw", "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	cmd := exec.Command("sh", "-c", "echo tampered > /dev/fd/3")
+	cmd.ExtraFiles = []*os.File{f}
+	if err := cmd.Run(); err == nil {
+		t.Error("child should not be able to rewrite the secret file")
+	}
+	cmd = exec.Command("cat", "/dev/fd/3")
+	cmd.ExtraFiles = []*os.File{f}
+	out, err := cmd.Output()
+	if err != nil || string(out) != "s3cret" {
+		t.Errorf("content after tamper attempt: %q %v", out, err)
+	}
+}
