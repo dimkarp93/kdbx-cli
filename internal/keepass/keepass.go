@@ -38,8 +38,9 @@ type Entry struct {
 	Value string
 }
 
-func CheckEngine() {
-	if _, err := exec.LookPath("keepassxc-cli"); err != nil {
+func CheckEngine() string {
+	path, err := exec.LookPath("keepassxc-cli")
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "keepassxc-cli not found in PATH.")
 		fmt.Fprintln(os.Stderr, "Install it:")
 		fmt.Fprintln(os.Stderr, "  Debian/Ubuntu:  sudo apt install keepassxc")
@@ -47,7 +48,10 @@ func CheckEngine() {
 		fmt.Fprintln(os.Stderr, "  macOS:          brew install keepassxc")
 		os.Exit(1)
 	}
+	return path
 }
+
+var enginePath string
 
 func Run(stdinData string, args ...string) (string, error) {
 	cmd := exec.Command("keepassxc-cli", args...)
