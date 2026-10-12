@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const DefaultAskpassReads = 1
+
 type Set struct {
 	dir  string
 	wg   sync.WaitGroup
@@ -46,7 +48,7 @@ func (s *Set) File(name, value string) (*os.File, error) {
 	return f, nil
 }
 
-func (s *Set) Askpass(name, value string) (string, error) {
+func (s *Set) Askpass(name, value string, reads int) (string, error) {
 	if err := s.makeDir(); err != nil {
 		return "", err
 	}
@@ -60,7 +62,7 @@ func (s *Set) Askpass(name, value string) (string, error) {
 		return "", err
 	}
 	s.wg.Add(1)
-	go s.feed(fifo, value+"\n")
+	go s.feed(fifo, value+"\n", reads)
 	return script, nil
 }
 
@@ -94,7 +96,7 @@ func (s *Set) makeDir() error {
 
 // The helper takes only the first line, so a reader that lingers after its own read and
 // picks up a second copy still sees the right secret.
-func (s *Set) feed(path, value string) {
+func (s *Set) feed(path, value string, reads int) {
 	defer s.wg.Done()
 	for {
 		f, err := openWhenRead(path, s.done)

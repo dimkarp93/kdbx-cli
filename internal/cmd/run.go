@@ -175,7 +175,7 @@ func cmdRun(flags runFlags, child []string) int {
 		}
 
 		if res.Askpass != "" {
-			script, err := pipes.Askpass(res.Askpass, values[res.Askpass])
+			script, err := pipes.Askpass(res.Askpass, values[res.Askpass], 0)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1

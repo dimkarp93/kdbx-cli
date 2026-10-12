@@ -54,7 +54,7 @@ func TestAskpassScript(t *testing.T) {
 	s := NewSet()
 	defer s.Close()
 
-	script, err := s.Askpass("pw", "s3cret")
+	script, err := s.Askpass("pw", "s3cret", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAskpassScript(t *testing.T) {
 
 func TestCloseWithoutReader(t *testing.T) {
 	s := NewSet()
-	if _, err := s.Askpass("pw", "s3cret"); err != nil {
+	if _, err := s.Askpass("pw", "s3cret", 0); err != nil {
 		t.Fatal(err)
 	}
 	dir := s.Dir()
@@ -95,7 +95,7 @@ func TestAskpassDirIsPrivate(t *testing.T) {
 	s := NewSet()
 	defer s.Close()
 
-	if _, err := s.Askpass("pw", "v"); err != nil {
+	if _, err := s.Askpass("pw", "v", 0); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(s.Dir())
