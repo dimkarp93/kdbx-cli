@@ -212,3 +212,22 @@ func TestValidateEnvNames(t *testing.T) {
 		t.Errorf("error %q mentions valid name", err)
 	}
 }
+
+func TestReadNewPassword(t *testing.T) {
+	answers := func(vals ...string) func(string) string {
+		return func(string) string {
+			v := vals[0]
+			vals = vals[1:]
+			return v
+		}
+	}
+	if pw, err := readNewPassword("/k.kdbx", answers("pw", "pw")); err != nil || pw != "pw" {
+		t.Errorf("matching: pw=%q err=%v", pw, err)
+	}
+	if _, err := readNewPassword("/k.kdbx", answers("pw", "typo")); err == nil {
+		t.Error("mismatch should fail")
+	}
+	if _, err := readNewPassword("/k.kdbx", answers("")); err == nil {
+		t.Error("empty password should fail")
+	}
+}
