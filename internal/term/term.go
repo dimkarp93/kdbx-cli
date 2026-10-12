@@ -107,9 +107,8 @@ func ReadPassword(prompt string) string {
 	fmt.Fprint(tty, prompt)
 	pw, err := term.ReadPassword(fd)
 	if err != nil {
-		reader := bufio.NewReader(tty)
-		line, _ := reader.ReadString('\n')
-		return strings.TrimRight(line, "\r\n")
+		fmt.Fprintln(tty)
+		return ""
 	}
 	fmt.Fprintln(tty)
 	return string(pw)
