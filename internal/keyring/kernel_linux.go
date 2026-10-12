@@ -19,12 +19,10 @@ const (
 
 type kernelBackend struct{}
 
-func newBackend() backend {
-	panic("not implemented")
-}
+func newBackend() backend { return kernelBackend{} }
 
 func dropLegacy(keyStore string) {
-	panic("not implemented")
+	_ = keyringDelete(keyringService, keyStore)
 }
 
 func searchKey(key string) (int, error) {

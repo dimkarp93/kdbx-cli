@@ -10,9 +10,7 @@ import (
 
 type secretServiceBackend struct{}
 
-func newBackend() backend {
-	panic("not implemented")
-}
+func newBackend() backend { return secretServiceBackend{} }
 
 func dropLegacy(keyStore string) {}
 
