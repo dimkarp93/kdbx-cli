@@ -169,5 +169,5 @@ func (kernelBackend) expiresIn(key string) (time.Duration, bool) {
 }
 
 func dropAllLegacy() {
-	panic("not implemented")
+	_ = keyringDeleteAll(keyringService)
 }

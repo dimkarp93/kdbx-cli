@@ -106,5 +106,7 @@ func (c Cache) Status(keyStore string) CacheStatus {
 }
 
 func ForgetAll() (int, error) {
-	panic("not implemented")
+	n, err := store.forgetAll()
+	dropAllLegacy()
+	return n, err
 }
