@@ -8,6 +8,7 @@ import (
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
 )
 
 type envSecret struct {
@@ -157,6 +158,11 @@ func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, fla
 	if res.Askpass != "" {
 		fmt.Fprintln(out)
 		fmt.Fprintf(out, "Askpass:      %s\n", res.Askpass)
+		reads := res.AskpassReads
+		if reads <= 0 {
+			reads = secretpipe.DefaultAskpassReads
+		}
+		fmt.Fprintf(out, "              handed out at most %d time(s)\n", reads)
 		fmt.Fprintf(out, "              %s\n", strings.Join(askpassEnv, ", "))
 	}
 

@@ -20,6 +20,7 @@ type Section struct {
 	Files         []string          `json:"files,omitempty"`
 	Templates     []Template        `json:"templates,omitempty"`
 	Askpass       string            `json:"askpass,omitempty"`
+	AskpassReads  int               `json:"askpass-reads,omitempty"`
 }
 
 type CacheConfig struct {

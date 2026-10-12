@@ -14,6 +14,7 @@ type Resolved struct {
 	Files         []string
 	Templates     []config.Template
 	Askpass       string
+	AskpassReads  int
 }
 
 type Overrides struct {
@@ -24,6 +25,7 @@ type Overrides struct {
 	Files         []string
 	Templates     []config.Template
 	Askpass       string
+	AskpassReads  int
 }
 
 func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
@@ -47,6 +49,9 @@ func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
 		}
 		if s.Askpass != "" {
 			r.Askpass = s.Askpass
+		}
+		if s.AskpassReads > 0 {
+			r.AskpassReads = s.AskpassReads
 		}
 	}
 	if s, ok := cfg.Sections["default"]; ok {
@@ -75,6 +80,9 @@ func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
 	}
 	if over.Askpass != "" {
 		r.Askpass = over.Askpass
+	}
+	if over.AskpassReads > 0 {
+		r.AskpassReads = over.AskpassReads
 	}
 	return r
 }

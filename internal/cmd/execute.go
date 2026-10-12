@@ -98,7 +98,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
   kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
            [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-           [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
+           [--template=name:path,...] [--askpass=name] [--askpass-reads=N]
+           [--dry-run] -- <cmd> [args...]
   kdbx-cli config [--config <path>] [-y]
   kdbx-cli check  [--config <path>] [-y]
   kdbx-cli show   [--config <path>]
@@ -150,7 +151,11 @@ Flags:
                            commands that only read from the terminal; sets
                            SSH_ASKPASS, SUDO_ASKPASS, GIT_ASKPASS,
                            RESTIC_PASSWORD_COMMAND, BORG_PASSCOMMAND
-                           (sudo still needs its own -A flag)
+                           (sudo still needs its own -A flag); the secret is
+                           handed out once, later requests get an empty answer
+  --askpass-reads=N        Hand the askpass secret out up to N times (for
+                           scripts that run several consumers, e.g. restic
+                           backup && restic forget)
   --dry-run                Print the resolved plan and exit; do not read the
                            key-store, prompt for a password, or run the command
   -y, --yes                For config/check: assume yes (create missing

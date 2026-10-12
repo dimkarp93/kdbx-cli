@@ -29,6 +29,7 @@ var completionSpec = shellcomplete.Spec{
 		{Name: "--secret-file"},
 		{Name: "--template"},
 		{Name: "--askpass"},
+		{Name: "--askpass-reads"},
 		{Name: "--dry-run", Bool: true},
 		{Name: "--path", Bool: true},
 		{Name: "--version", Bool: true},
