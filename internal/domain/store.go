@@ -140,7 +140,7 @@ func gatherMissing(byStore map[string][]string, cache keyring.Cache) []storeStat
 			continue
 		}
 		s.exists = true
-		out, pw, err := UnlockExport(ks, cache, fmt.Sprintf("Enter password for %s: ", ks))
+		out, pw, err := UnlockExport(ks, cache, fmt.Sprintf("Enter password for %s: ", ks), true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cannot read %s: %v\n", ks, err)
 			continue

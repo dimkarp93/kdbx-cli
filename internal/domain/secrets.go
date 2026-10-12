@@ -8,7 +8,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
-func UnlockExport(keyStore string, cache keyring.Cache, prompt string) (string, string, error) {
+func UnlockExport(keyStore string, cache keyring.Cache, prompt string, allowCache bool) (string, string, error) {
 	if pw, ok := cache.Get(keyStore); ok {
 		out, err := keepass.Run(pw+"\n", "export", "-q", "-f", "xml", keyStore)
 		if err == nil {
