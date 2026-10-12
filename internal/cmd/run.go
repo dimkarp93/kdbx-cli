@@ -207,6 +207,12 @@ func cmdRun(flags runFlags, child []string) int {
 
 const firstExtraFD = 3
 
+const passwordEnv = "KDBX_CLI_PASSWORD"
+
+func childEnv(environ []string) []string {
+	panic("not implemented")
+}
+
 func stdinPayload(names []string, values map[string]string) (string, error) {
 	var b strings.Builder
 	for _, name := range names {
