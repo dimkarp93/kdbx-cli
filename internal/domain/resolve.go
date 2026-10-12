@@ -101,3 +101,17 @@ func (r Resolved) AllTitles() []string {
 	add(r.Askpass)
 	return out
 }
+
+func ConfiguredTitles(cfg config.Config, tool string) map[string]bool {
+	res := Resolve(cfg, tool, Overrides{})
+	out := map[string]bool{}
+	for _, name := range res.AllTitles() {
+		out[name] = true
+	}
+	if names, err := res.TemplateTitles(); err == nil {
+		for _, name := range names {
+			out[name] = true
+		}
+	}
+	return out
+}
