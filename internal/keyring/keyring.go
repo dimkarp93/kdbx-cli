@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -36,7 +37,14 @@ var store backend
 const keyPrefix = keyringService + ":"
 
 func storeKey(keyStore string) string {
-	panic("not implemented")
+	path := config.ExpandHome(keyStore)
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return keyPrefix + path
 }
 
 type cachedSecret struct {
