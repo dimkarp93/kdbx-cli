@@ -46,11 +46,6 @@ func storeKey(keyStore string) string {
 	return keyPrefix + path
 }
 
-type cachedSecret struct {
-	Password string `json:"password"`
-	StoredAt int64  `json:"stored_at"`
-}
-
 type Cache struct {
 	enabled bool
 	ttl     time.Duration
