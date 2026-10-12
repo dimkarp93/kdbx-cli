@@ -95,6 +95,10 @@ func userKeyringIDs() ([]int, error) {
 }
 
 func (kernelBackend) forgetAll() (int, error) {
+	return forgetWithPrefix(keyPrefix)
+}
+
+func forgetWithPrefix(prefix string) (int, error) {
 	ids, err := userKeyringIDs()
 	if err != nil {
 		return 0, err
@@ -106,7 +110,7 @@ func (kernelBackend) forgetAll() (int, error) {
 			continue
 		}
 		parts := strings.SplitN(desc, ";", 5)
-		if len(parts) != 5 || parts[0] != kernelKeyType || !strings.HasPrefix(parts[4], keyPrefix) {
+		if len(parts) != 5 || parts[0] != kernelKeyType || !strings.HasPrefix(parts[4], prefix) {
 			continue
 		}
 		if invalidateKey(id) == nil {
