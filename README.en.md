@@ -35,6 +35,24 @@ github_install.sh dimkarp93/kdbx-cli
 curl -fsSL https://raw.githubusercontent.com/dimkarp93/install/master/install.sh | sh -s -- dimkarp93/kdbx-cli
 ```
 
+## Upgrading
+
+Install the new version with the same command as in Installation. No config migration is needed: the schema has not changed.
+
+After upgrading, run this once on every machine where password caching (`cached.enabled`) was on:
+
+```sh
+kdbx-cli forget
+```
+
+Earlier versions kept the password in Secret Service. The new one never looks there and will not remove the old entries by itself, while Secret Service keeps them on disk. `forget` wipes them along with the kernel keyring entries.
+
+What else may need action:
+
+- **Askpass hands the secret out once.** If one `kdbx-cli` run has several consumers (e.g. `restic backup && restic forget`), add `--askpass-reads=N` or `"askpass-reads": N` to the section.
+- **Permission warnings.** If the config, a template or their directory is writable by group or others, `kdbx-cli` prints a `warning`. Fix it: `chmod go-w <file> <dir>`.
+- **`keepassxc-cli` vetting.** If the binary or its directory is writable by group or others, or owned by another user, `kdbx-cli` refuses to run it. Packages from apt, pacman and brew pass the check.
+
 ## Usage
 
 ```
@@ -398,7 +416,7 @@ On Linux the password is kept in the user's **kernel keyring** (`keyctl`, key `k
 - Hibernation writes memory, kernel keys included, to swap. If swap is not encrypted, the password ends up on disk.
 - If the kernel keyring is unavailable (for example in a container), the cache simply does not work and the password is requested as usual.
 
-After upgrading from a version that cached in Secret Service, run `kdbx-cli forget` to remove the old entries.
+After upgrading from a version that cached in Secret Service, run `kdbx-cli forget` (see [Upgrading](#upgrading)).
 
 ## Security limitations
 
