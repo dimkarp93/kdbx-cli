@@ -400,7 +400,7 @@ kdbx-cli show --config ~/.config/kdbx-cli/install_secrets
 - `enabled` — включить кэш (по умолчанию выключен).
 - `ttl` — время жизни записи (формат Go `time.ParseDuration`: `30s`, `10m`, `2h`; по умолчанию `10m`).
 
-На Linux пароль хранится в **kernel keyring** пользователя (`keyctl`, ключ `kdbx-cli:<абсолютный путь к .kdbx>`). На macOS и других системах — в OS-keyring (Keychain / Secret Service). Кэш управляется только через конфиг (нет CLI-флагов и env). Сбросить кэш: `kdbx-cli forget` — удаляет все закэшированные пароли `kdbx-cli`, в том числе для баз, которых в конфиге уже нет, и старые записи в Secret Service от прежних версий.
+На Linux пароль хранится в **kernel keyring** пользователя (`keyctl`, ключ `kdbx-cli:<абсолютный путь к .kdbx>`). На macOS и других системах — в OS-keyring (Keychain / Secret Service). Кэш управляется только через конфиг (нет CLI-флагов и env). Сбросить кэш: `kdbx-cli forget` — удаляет все закэшированные пароли `kdbx-cli`, в том числе для баз, которых в конфиге уже нет, и старые записи в Secret Service от прежних версий. Подробнее о хранении и `keyctl`: [docs/keyrings.ru.md](docs/keyrings.ru.md).
 
 **Что даёт kernel keyring:**
 

@@ -130,6 +130,7 @@ var procKeysUnits = map[byte]time.Duration{
 	'w': 7 * 24 * time.Hour,
 }
 
+// /proc/keys format: see docs/keyrings.md.
 func parseProcKeysTimeout(field string) (time.Duration, bool) {
 	if len(field) < 2 {
 		return 0, false
@@ -145,6 +146,7 @@ func parseProcKeysTimeout(field string) (time.Duration, bool) {
 	return time.Duration(n) * unit, true
 }
 
+// /proc/keys format: see docs/keyrings.md.
 func (kernelBackend) expiresIn(key string) (time.Duration, bool) {
 	id, err := searchKey(key)
 	if err != nil {

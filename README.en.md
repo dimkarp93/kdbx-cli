@@ -400,7 +400,7 @@ Within a single `kdbx-cli` invocation the database password is asked once. To av
 - `enabled` — enable the cache (disabled by default).
 - `ttl` — entry lifetime (Go `time.ParseDuration` format: `30s`, `10m`, `2h`; defaults to `10m`).
 
-On Linux the password is kept in the user's **kernel keyring** (`keyctl`, key `kdbx-cli:<absolute path to the .kdbx>`). On macOS and other systems it goes to the OS keyring (Keychain / Secret Service). The cache is controlled only through the config (there are no CLI flags or env variables). To drop the cache: `kdbx-cli forget` — removes every cached `kdbx-cli` password, including stores no longer in the config and the Secret Service entries left by earlier versions.
+On Linux the password is kept in the user's **kernel keyring** (`keyctl`, key `kdbx-cli:<absolute path to the .kdbx>`). On macOS and other systems it goes to the OS keyring (Keychain / Secret Service). The cache is controlled only through the config (there are no CLI flags or env variables). To drop the cache: `kdbx-cli forget` — removes every cached `kdbx-cli` password, including stores no longer in the config and the Secret Service entries left by earlier versions. More on storage and `keyctl`: [docs/keyrings.md](docs/keyrings.md).
 
 **What the kernel keyring gives you:**
 
