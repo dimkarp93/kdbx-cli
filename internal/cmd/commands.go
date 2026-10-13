@@ -82,29 +82,16 @@ func cmdCheck(path string, assumeYes bool) {
 }
 
 func cmdForget(path string) {
-	if path == "" {
-		path = config.DefaultPath()
-	}
-	cfg, err := config.Load(path)
+	n, err := keyring.ForgetAll()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cannot load config", path+":", err)
+		fmt.Fprintln(os.Stderr, "cannot clear cached passwords:", err)
 		os.Exit(1)
 	}
-	byStore := domain.AggregateStores(cfg)
-	if len(byStore) == 0 {
-		fmt.Println("No key-stores configured in", path)
+	if n < 0 {
+		fmt.Println("Forgot all cached key-store passwords")
 		return
 	}
-	cache := keyring.New(cfg.Cache)
-	stores := make([]string, 0, len(byStore))
-	for ks := range byStore {
-		stores = append(stores, ks)
-	}
-	sort.Strings(stores)
-	for _, ks := range stores {
-		cache.Forget(ks)
-		fmt.Println("Forgot cached password for", ks)
-	}
+	fmt.Printf("Forgot %d cached key-store password(s)\n", n)
 }
 
 func titlesOf(pairs []domain.Mapping) []string {

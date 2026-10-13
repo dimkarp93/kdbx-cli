@@ -35,12 +35,31 @@ github_install.sh dimkarp93/kdbx-cli
 curl -fsSL https://raw.githubusercontent.com/dimkarp93/install/master/install.sh | sh -s -- dimkarp93/kdbx-cli
 ```
 
+## Upgrading
+
+Install the new version with the same command as in Installation. No config migration is needed: the schema has not changed.
+
+After upgrading, run this once on every machine where password caching (`cached.enabled`) was on:
+
+```sh
+kdbx-cli forget
+```
+
+Earlier versions kept the password in Secret Service. The new one never looks there and will not remove the old entries by itself, while Secret Service keeps them on disk. `forget` wipes them along with the kernel keyring entries.
+
+What else may need action:
+
+- **Askpass hands the secret out once.** If one `kdbx-cli` run has several consumers (e.g. `restic backup && restic forget`), add `--askpass-reads=N` or `"askpass-reads": N` to the section.
+- **Permission warnings.** If the config, a template or their directory is writable by group or others, `kdbx-cli` prints a `warning`. Fix it: `chmod go-w <file> <dir>`.
+- **`keepassxc-cli` vetting.** If the binary or its directory is writable by group or others, or owned by another user, `kdbx-cli` refuses to run it. Packages from apt, pacman and brew pass the check.
+
 ## Usage
 
 ```
 kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
          [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-         [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
+         [--template=name:path,...] [--askpass=name] [--askpass-reads=N]
+         [--dry-run] -- <cmd> [args...]
 kdbx-cli config [--config <path>]
 kdbx-cli version | --version | -v
 ```
@@ -57,6 +76,7 @@ Flags:
 - `--secret-file=name,...` — expose the secret as a file and substitute its path for the `{{name}}` placeholder in the command.
 - `--template=name:path,...` — render the file at `path` (every `{{Title}}` found in its content is replaced with that secret's value), expose the result as a file, and substitute its path for the `{{name}}` placeholder in the command; paths ending in `.json` are JSON-escaped.
 - `--askpass=name` — serve the secret through an askpass helper (for commands that only read from the terminal).
+- `--askpass-reads=N` — how many times the helper hands out the secret (defaults to 1).
 - `--dry-run` — do not run the command and do not touch the store: print the resolved plan (see below).
 
 On startup `kdbx-cli` asks for the store password (input is hidden, read from `/dev/tty`). Cancel with `Ctrl+C` / `Ctrl+D`.
@@ -100,7 +120,8 @@ The config is a JSON object with the required field `version` (the current schem
 - `stdin-keep-open` — `true` to keep stdin open after the secrets (the `--stdin-keep-open` counterpart);
 - `files` — the list of secrets handed over as files through the `{{Title}}` placeholder (the `--secret-file` counterpart);
 - `templates` — the list of `{name, path}` entries: files rendered with secrets interpolated into their content (the `--template` counterpart);
-- `askpass` — a single secret served through the askpass helper (the `--askpass` counterpart).
+- `askpass` — a single secret served through the askpass helper (the `--askpass` counterpart);
+- `askpass-reads` — how many times the helper hands out the secret, defaults to 1 (the `--askpass-reads` counterpart).
 
 Every delivery channel can be set up both from a flag and from the config — the flags merely override the config, there is no CLI-only channel. See [Delivery channels](#delivery-channels) for the details.
 
@@ -222,7 +243,9 @@ kdbx-cli --askpass=restic-pw    -- restic -r sftp:backup:/b snapshots
 
 `sudo` only looks at `SUDO_ASKPASS` with the `-A` flag — you have to pass it yourself.
 
-The helper returns the same secret to every prompt. For `git` over HTTP put the username in the URL (`https://me@host/repo.git`) so that git only asks for the password. Without it the secret is sent as the username as well, which only works on servers that accept a token as the username (GitHub, Gitea).
+The helper hands out the secret **once**: later requests get an empty answer, so the secret does not leak into an unrelated prompt that happens to run in the same process tree. Once is enough for a single consumer process (`ssh`, `ssh-add`, `sudo -A`, one `git`, one `restic`/`borg`). If several of them run under one `kdbx-cli` — a backup script `restic backup && restic forget`, `git` with submodules or LFS — raise the limit with `--askpass-reads=N` or `"askpass-reads": N` in the section.
+
+The helper refuses username prompts (`Username…`) and the `ssh` host-key question (`(yes/no…`) without spending a read on them. That is why for `git` over HTTP you should put the username in the URL (`https://me@host/repo.git`).
 
 ### In the config
 
@@ -259,6 +282,7 @@ The layers are applied in the order `default` → tool section → flags, by the
 | `stdin`, `files`, `templates` | replaced as a whole: the order of the lines matters, and concatenating the lists would give a surprising result |
 | `stdin-keep-open` | enabled when `true` on at least one layer |
 | `askpass` | replaced when set to a non-empty value |
+| `askpass-reads` | replaced when set above zero |
 
 Hence a few consequences that are easy to miss:
 
@@ -280,6 +304,7 @@ Files (placeholder ← secret):
   {{restic-pw}} ← restic-pw
 
 Askpass:      ssh-key-pass
+              handed out at most 1 time(s)
               SSH_ASKPASS, SUDO_ASKPASS, GIT_ASKPASS, RESTIC_PASSWORD_COMMAND, BORG_PASSCOMMAND
 
 Command:
@@ -375,20 +400,44 @@ Within a single `kdbx-cli` invocation the database password is asked once. To av
 - `enabled` — enable the cache (disabled by default).
 - `ttl` — entry lifetime (Go `time.ParseDuration` format: `30s`, `10m`, `2h`; defaults to `10m`).
 
-The password is stored in the **OS keyring** via Secret Service (gnome-keyring / KWallet) and is controlled only through the config (there are no CLI flags or env variables). To drop the cache: `kdbx-cli forget` (clears the entries for every `.kdbx` from the config).
+On Linux the password is kept in the user's **kernel keyring** (`keyctl`, key `kdbx-cli:<absolute path to the .kdbx>`). On macOS and other systems it goes to the OS keyring (Keychain / Secret Service). The cache is controlled only through the config (there are no CLI flags or env variables). To drop the cache: `kdbx-cli forget` — removes every cached `kdbx-cli` password, including stores no longer in the config and the Secret Service entries left by earlier versions. More on storage and `keyctl`: [docs/keyrings.md](docs/keyrings.md).
 
-**What this implies and the risks:**
+**What the kernel keyring gives you:**
 
-- What is cached is the **master password** of the `.kdbx` — it opens the **whole** database, not just the injected variables. That is a more valuable target than the environment of a child process.
-- In the keyring the password is encrypted on disk and decrypted in the daemon's memory for the duration of the login session; you can inspect/revoke it in **seahorse** ("Passwords and Keys").
-- The basic Secret Service has **no** per-application separation: any process running as the same user can read the entry (the same trust boundary as `/proc/<pid>/environ`).
-- If Secret Service is unavailable (headless, SSH, no session bus), the cache simply does not work and the password is requested as usual (the command does not fail).
+- The **kernel** enforces the TTL: the key becomes unavailable exactly after `ttl`, even if `kdbx-cli` never runs again (`keyctl show @u`, `grep kdbx-cli /proc/keys`).
+- The password is **never written to disk** and never crosses D-Bus — unlike Secret Service, where it lived in `login.keyring` and travelled over the bus in plaintext.
+- The key lives until a reboot or until `ttl` runs out, whichever comes first.
+
+**What it does not give you, and the risks:**
+
+- What is cached is the **master password** of the `.kdbx` — it opens the **whole** database, not just the injected variables.
+- Any process running as the same user can read the key (`keyctl print`) — the same trust boundary as `/proc/<pid>/environ`. There is no per-application separation.
+- To keep `kdbx-cli` from becoming an oracle for the whole database, the cached password is used only when **every** requested secret is listed in the config for that tool. Asking for other `Title`s through flags (`--secrets`, `--stdin`, …) prompts for the password again.
+- Hibernation writes memory, kernel keys included, to swap. If swap is not encrypted, the password ends up on disk.
+- If the kernel keyring is unavailable (for example in a container), the cache simply does not work and the password is requested as usual.
+
+After upgrading from a version that cached in Secret Service, run `kdbx-cli forget` (see [Upgrading](#upgrading)).
 
 ## Security limitations
 
 The secret never reaches the command line (`/proc/<pid>/cmdline` is readable by any process) and is never written to disk in plaintext: the `files` and `templates` channels use an anonymous in-memory file, and askpass a FIFO in a `0700` directory. `templates` never overwrites the source template file — it only reads it.
 
 In the `secrets` channel, though, `kdbx-cli` injects secrets into the environment of a child process, and a process's env variables are readable via `/proc/<pid>/environ` by the same user (and root). This is the common tradeoff of this whole class of tools (`op run`, `envchain`, `aws-vault`) — but it is radically safer than keeping secrets in the shell history or in plaintext files. If you need protection from neighbouring processes of the same user reading the environment, this approach (like its analogues) is not suitable.
+
+What else `kdbx-cli` does to protect you:
+
+- The `kdbx-cli` process is marked non-dumpable (`PR_SET_DUMPABLE=0` on Linux): its memory — with the password and the database export — does not end up in a core dump, and neighbouring processes cannot read it through ptrace or `/proc/<pid>/mem`.
+- The files of the `files` and `templates` channels are sealed (`F_SEAL_WRITE` and friends): the command can read them but cannot rewrite them.
+- `keepassxc-cli` is vetted before use: if the binary or the directory it was found in is writable by the group or others, or owned by another user, `kdbx-cli` refuses to hand it the password.
+- If the config, its directory or a template is writable by the group or others, `kdbx-cli` warns: whoever can edit them decides where your secrets go.
+- `KDBX_CLI_PASSWORD` (the store password from env, for tests) is not passed to the child command.
+
+What remains on your side:
+
+- The `files`/`templates` descriptors (`/dev/fd/N`) and the environment variables are inherited by every process the command starts.
+- Outside Linux the `files` channel uses a temporary file that is removed right after creation, but its content briefly reaches the disk.
+- Values in templates other than `.json` are substituted as is: a secret with a newline or quotes can change the structure of the file (YAML, INI, ssh config).
+- The memory of `kdbx-cli` can be swapped out. Use disk and swap encryption (LUKS), `kernel.yama.ptrace_scope=1`, and isolate untrusted code (a container, a separate user).
 
 ## Development
 

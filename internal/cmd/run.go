@@ -81,7 +81,7 @@ func cmdRun(flags runFlags, child []string) int {
 	}
 
 	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, tool)
-	out, _, err := domain.UnlockExport(keyStore, keyring.New(cfg.Cache), prompt)
+	out, _, err := domain.UnlockExport(keyStore, keyring.New(cfg.Cache), prompt, titlesGranted(titles, domain.ConfiguredTitles(cfg, tool)))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -117,7 +117,7 @@ func cmdRun(flags runFlags, child []string) int {
 		envNames = append(envNames, n)
 	}
 	sort.Strings(envNames)
-	env := os.Environ()
+	env := childEnv(os.Environ())
 	for _, name := range envNames {
 		env = append(env, name+"="+values[res.Secrets[name]])
 	}
@@ -175,7 +175,7 @@ func cmdRun(flags runFlags, child []string) int {
 		}
 
 		if res.Askpass != "" {
-			script, err := pipes.Askpass(res.Askpass, values[res.Askpass])
+			script, err := pipes.Askpass(res.Askpass, values[res.Askpass], res.AskpassReads)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
@@ -205,7 +205,28 @@ func cmdRun(flags runFlags, child []string) int {
 	return 0
 }
 
+func titlesGranted(titles []string, granted map[string]bool) bool {
+	for _, name := range titles {
+		if !granted[name] {
+			return false
+		}
+	}
+	return true
+}
+
 const firstExtraFD = 3
+
+const passwordEnv = "KDBX_CLI_PASSWORD"
+
+func childEnv(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		if k, _, _ := strings.Cut(kv, "="); k != passwordEnv {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
 
 func stdinPayload(names []string, values map[string]string) (string, error) {
 	var b strings.Builder

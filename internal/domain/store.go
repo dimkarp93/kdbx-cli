@@ -140,7 +140,7 @@ func gatherMissing(byStore map[string][]string, cache keyring.Cache) []storeStat
 			continue
 		}
 		s.exists = true
-		out, pw, err := UnlockExport(ks, cache, fmt.Sprintf("Enter password for %s: ", ks))
+		out, pw, err := UnlockExport(ks, cache, fmt.Sprintf("Enter password for %s: ", ks), true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cannot read %s: %v\n", ks, err)
 			continue
@@ -195,7 +195,12 @@ func ReconcileStores(byStore map[string][]string, assumeYes bool, cache keyring.
 				fmt.Println("Skipped", s.path)
 				continue
 			}
-			pw := term.ReadPassword("Set a password for the new key-store " + s.path + ": ")
+			pw, err := readNewPassword(s.path, term.ReadPassword)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				fmt.Println("Skipped", s.path)
+				continue
+			}
 			if err := keepass.CreateStore(s.path, pw); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				continue
@@ -215,6 +220,17 @@ func ReconcileStores(byStore map[string][]string, assumeYes bool, cache keyring.
 			fmt.Printf("  + %s → %s\n", t, s.path)
 		}
 	}
+}
+
+func readNewPassword(path string, read func(prompt string) string) (string, error) {
+	pw := read("Set a password for the new key-store " + path + ": ")
+	if pw == "" {
+		return "", fmt.Errorf("password for %s cannot be empty", path)
+	}
+	if read("Repeat the password for "+path+": ") != pw {
+		return "", fmt.Errorf("passwords for %s do not match", path)
+	}
+	return pw, nil
 }
 
 type StoreView struct {

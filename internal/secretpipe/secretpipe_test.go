@@ -54,7 +54,7 @@ func TestAskpassScript(t *testing.T) {
 	s := NewSet()
 	defer s.Close()
 
-	script, err := s.Askpass("pw", "s3cret")
+	script, err := s.Askpass("pw", "s3cret", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestAskpassScript(t *testing.T) {
 
 func TestCloseWithoutReader(t *testing.T) {
 	s := NewSet()
-	if _, err := s.Askpass("pw", "s3cret"); err != nil {
+	if _, err := s.Askpass("pw", "s3cret", 0); err != nil {
 		t.Fatal(err)
 	}
 	dir := s.Dir()
@@ -95,7 +95,7 @@ func TestAskpassDirIsPrivate(t *testing.T) {
 	s := NewSet()
 	defer s.Close()
 
-	if _, err := s.Askpass("pw", "v"); err != nil {
+	if _, err := s.Askpass("pw", "v", 0); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(s.Dir())
@@ -104,5 +104,70 @@ func TestAskpassDirIsPrivate(t *testing.T) {
 	}
 	if fi.Mode().Perm() != 0700 {
 		t.Errorf("mode: got %o, want 700", fi.Mode().Perm())
+	}
+}
+
+func TestAskpassServesOnceByDefault(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	script, err := s.Askpass("pw", "s3cret", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(script, "Password:").Output()
+	if err != nil || string(out) != "s3cret\n" {
+		t.Fatalf("first call: %q %v", out, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	out, _ = exec.Command(script, "Password:").Output()
+	if string(out) != "" {
+		t.Errorf("second call should get nothing, got %q", out)
+	}
+}
+
+func TestAskpassRefusesUsernameAndHostKeyPrompts(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	script, err := s.Askpass("pw", "s3cret", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{
+		"Username for 'https://example.com': ",
+		"Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
+	} {
+		out, err := exec.Command(script, prompt).Output()
+		if err == nil || len(out) != 0 {
+			t.Errorf("%q: should be refused, got %q err=%v", prompt, out, err)
+		}
+	}
+	out, err := exec.Command(script, "Password for 'https://alice@example.com': ").Output()
+	if err != nil || string(out) != "s3cret\n" {
+		t.Errorf("password prompt after refusals: %q %v", out, err)
+	}
+}
+
+func TestFileIsSealed(t *testing.T) {
+	s := NewSet()
+	defer s.Close()
+
+	f, err := s.File("pw", "s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	cmd := exec.Command("sh", "-c", "echo tampered > /dev/fd/3")
+	cmd.ExtraFiles = []*os.File{f}
+	if err := cmd.Run(); err == nil {
+		t.Error("child should not be able to rewrite the secret file")
+	}
+	cmd = exec.Command("cat", "/dev/fd/3")
+	cmd.ExtraFiles = []*os.File{f}
+	out, err := cmd.Output()
+	if err != nil || string(out) != "s3cret" {
+		t.Errorf("content after tamper attempt: %q %v", out, err)
 	}
 }

@@ -452,3 +452,37 @@ func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
 		t.Errorf("command line should mask the template file:\n%s", out)
 	}
 }
+
+func TestChildEnvDropsPassword(t *testing.T) {
+	got := childEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
+	want := []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("childEnv: got %v, want %v", got, want)
+	}
+}
+
+func TestTitlesGranted(t *testing.T) {
+	granted := map[string]bool{"A": true, "B": true}
+	if !titlesGranted([]string{"A", "B"}, granted) {
+		t.Error("subset should be granted")
+	}
+	if titlesGranted([]string{"A", "C"}, granted) {
+		t.Error("unknown title must not be granted")
+	}
+}
+
+func TestParseRunFlagsAskpassReads(t *testing.T) {
+	f, err := parseRunFlags([]string{"--askpass=PW", "--askpass-reads=3"})
+	if err != nil || f.askpassReads != 3 || f.overrides().AskpassReads != 3 {
+		t.Errorf("--askpass-reads=3: %+v %v", f, err)
+	}
+	f, err = parseRunFlags([]string{"--askpass-reads", "2"})
+	if err != nil || f.askpassReads != 2 {
+		t.Errorf("--askpass-reads 2: %+v %v", f, err)
+	}
+	for _, bad := range []string{"--askpass-reads=0", "--askpass-reads=-1", "--askpass-reads=x"} {
+		if _, err := parseRunFlags([]string{bad}); err == nil {
+			t.Errorf("%s should fail", bad)
+		}
+	}
+}

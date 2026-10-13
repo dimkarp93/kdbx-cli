@@ -25,7 +25,8 @@
 ```
 kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
          [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
-         [--template=name:path,...] [--askpass=name] [--dry-run] -- <cmd> [args...]
+         [--template=name:path,...] [--askpass=name] [--askpass-reads=N]
+         [--dry-run] -- <cmd> [args...]
 kdbx-cli config  [--config <path>] [-y]
 kdbx-cli check   [--config <path>] [-y]
 kdbx-cli show    [--config <path>]
@@ -39,27 +40,28 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 
 ## Конфиг и кэш
 
-Схема конфига — struct `Config{ Version int json:"version"; Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string (имя env-переменной → имя записи; ключ уникален, поэтому одна запись может питать несколько переменных), Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string }`, `Template{ Name, Path string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files`/`Templates` заменяются целиком (порядок строк значим). `config.Load` читает только схему текущей версии (`config.CurrentVersion`); конфиг без поля `version` считается версией 0, а любая версия, отличная от текущей, — ошибка с подсказкой запустить `kdbx-cli migrate`.
+Схема конфига — struct `Config{ Version int json:"version"; Sections map[string]Section json:"sections"; Cache *CacheConfig json:"cached,omitempty" }`; `Section{ KeyStore, Secrets map[string]string (имя env-переменной → имя записи; ключ уникален, поэтому одна запись может питать несколько переменных), Stdin []string, StdinKeepOpen bool, Files []string, Templates []Template, Askpass string, AskpassReads int }`, `Template{ Name, Path string }`. При слиянии секций `Secrets` дополняется поэлементно, `Stdin`/`Files`/`Templates` заменяются целиком (порядок строк значим). `config.Load` читает только схему текущей версии (`config.CurrentVersion`); конфиг без поля `version` считается версией 0, а любая версия, отличная от текущей, — ошибка с подсказкой запустить `kdbx-cli migrate`.
 
 **Версионирование конфига.** Тулза зарелизилась, поэтому формат конфига меняется только явно: любое несовместимое изменение схемы (переименование/переворот/удаление поля, смена типа) обязано поднять `config.CurrentVersion`, добавить шаг `N → N+1` в `steps` (`internal/config/migrate.go`, работает над сырым JSON) и покрыть его тестом. `config.Save` всегда пишет текущую версию в конфиг. `kdbx-cli migrate [--from N] [--to M]` (по умолчанию `--from=0`, `--to=config.CurrentVersion`) применяет цепочку шагов к файлу на месте; если файл уже на `--to`, это не ошибка, а при несовпадении версии файла с `--from` — ошибка.
 
-Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` в OS-keyring через `github.com/zalando/go-keyring`. `domain.UnlockExport` — единая точка «достать пароль (кэш→prompt) + export»; `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget`) чистит keyring для всех `.kdbx` конфига. keyring-обёртки (`keyringSet/Get/Delete`) — var'ы, стабятся в тестах. Деградирует без Secret Service (miss + warning, не падает).
+Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` за интерфейсом `backend`: на Linux — kernel keyring (`kernel_linux.go`, `keyctl` через `golang.org/x/sys/unix`, ключ `kdbx-cli:<канонический путь>` из `storeKey`, TTL — `KEYCTL_SET_TIMEOUT`), на остальных ОС — OS-keyring через `github.com/zalando/go-keyring` (`secretservice_other.go`, JSON с `expires_at`). `domain.UnlockExport(…, allowCache)` — единая точка «достать пароль (кэш→prompt) + export»; кэш читается, только если все запрошенные Title есть в конфиге тулзы (`domain.ConfiguredTitles`). `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget` → `keyring.ForgetAll`) удаляет все ключи `kdbx-cli:*` и старые записи Secret Service. В тестах подменяется `store` (backend) и keyring-обёртки (`keyringSet/Get/Delete/DeleteAll`). Без keyring деградирует (miss + warning, не падает).
 
 ## Структура
 
 Код разбит на пакеты под `internal/` (без циклов: `config`/`keepass`/`term`/`secretpipe` — листья; `keyring → config`; `domain → config,keepass,keyring,term`; `cmd → domain,config,keepass,keyring,term,secretpipe`; корневой `main → cmd`).
 
 - `cmd/kdbx-cli/main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
-- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save`, `CurrentVersion`, `Migrate` (шаги миграции схемы); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
-- `internal/keepass` — `CheckEngine`, `Run` (вызов `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
-- `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget`, подменяемые `keyringSet/Get/Delete` (go-keyring / Secret Service).
+- `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save` (`Load` предупреждает о небезопасных правах через `WarnUnsafePermissions`/`PermissionWarnings`), `CurrentVersion`, `Migrate` (шаги миграции схемы); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
+- `internal/keepass` — `CheckEngine` (находит `keepassxc-cli`, проверяет права через `checkEngineFile` и закрепляет путь в `enginePath`), `Run` (вызов закреплённого `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
+- `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget/Status`, `ForgetAll`, интерфейс `backend` (`kernelBackend` на Linux, `secretServiceBackend` на остальных ОС), `storeKey`, подменяемые `keyringSet/Get/Delete/DeleteAll` (go-keyring).
 - `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword`, `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
-- `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass` (FIFO в каталоге `0700` + скрипт `head -n 1`, горутина `feed` пишет секрет каждому новому читателю), `Set.Close`.
+- `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, запечатанный `sealAnonFile`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass(name, value, reads)` (FIFO в каталоге `0700` + скрипт, который отказывает на `Username*`/`(yes/no` и делает `head -n 1`; горутина `feed` отдаёт секрет первым `reads` читателям, по умолчанию `DefaultAskpassReads` = 1, остальным — пустой ответ), `Set.Close`.
 - `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `TemplateTitles`/`RenderTemplate`/`Resolved.TemplateTitles` (сканирование `{{Title}}` в содержимом шаблона и рендер с JSON-экранированием для путей `.json`), `Mapping`/`MappingsFromMap`/`MappingsToMap`/`SortMappings`/`ValidateEnvNames`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
   - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`migrate`/`version`/run-режим), `usage`, `parseConfigArgs`.
   - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag` (`name:env` → `dst[env]=name`), `splitTitles`, `parseTemplatesFlag`, тип `runFlags` и его `overrides()`.
-  - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
+  - `harden_linux.go`/`harden_other.go` — `hardenProcess` (`PR_SET_DUMPABLE=0` в начале `Execute`).
+  - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль (`titlesGranted` решает, можно ли брать его из кэша) → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
   - `plan.go` — `printPlan` и хелперы dry-run (`describeSection`, `renderCommand`, `shellQuote`).
   - `migrate.go` — `parseMigrateArgs`, `cmdMigrate`.
   - `commands.go` — `cmdConfig` (TTY → TUI, иначе `configFallback`; после сохранения — `ReconcileStores` для default), `cmdCheck`, `cmdForget`.
@@ -68,7 +70,7 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 
 ## Сборка и тесты
 
-Зависит от `keepassxc-cli` в PATH. Go 1.26.1. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — `zalando/go-keyring` (godbus, без cgo). Сборка статическая (`CGO_ENABLED=0`).
+Зависит от `keepassxc-cli` в PATH. Go 1.26.1. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — kernel keyring через `golang.org/x/sys/unix` на Linux и `zalando/go-keyring` (godbus, без cgo) на остальных ОС. Сборка статическая (`CGO_ENABLED=0`).
 
 - `make build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
 - `make unit-test` — юнит-тесты (`go test ./...`).

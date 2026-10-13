@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
@@ -17,6 +18,7 @@ type runFlags struct {
 	files         []string
 	templates     []config.Template
 	askpass       string
+	askpassReads  int
 	dryRun        bool
 }
 
@@ -117,6 +119,20 @@ func parseRunFlags(args []string) (runFlags, error) {
 			i++
 		case strings.HasPrefix(a, "--askpass="):
 			f.askpass = strings.TrimPrefix(a, "--askpass=")
+		case a == "--askpass-reads":
+			v, err := needValue(i)
+			if err != nil {
+				return f, err
+			}
+			if f.askpassReads, err = parseAskpassReads(v); err != nil {
+				return f, err
+			}
+			i++
+		case strings.HasPrefix(a, "--askpass-reads="):
+			var err error
+			if f.askpassReads, err = parseAskpassReads(strings.TrimPrefix(a, "--askpass-reads=")); err != nil {
+				return f, err
+			}
 		case a == "--dry-run":
 			f.dryRun = true
 		default:
@@ -167,6 +183,14 @@ func parseTemplatesFlag(spec string) ([]config.Template, error) {
 	return out, nil
 }
 
+func parseAskpassReads(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid --askpass-reads %q (expected a positive number)", v)
+	}
+	return n, nil
+}
+
 func splitTitles(spec string) []string {
 	var out []string
 	for _, part := range strings.Split(spec, ",") {
@@ -186,5 +210,6 @@ func (f runFlags) overrides() domain.Overrides {
 		Files:         f.files,
 		Templates:     f.templates,
 		Askpass:       f.askpass,
+		AskpassReads:  f.askpassReads,
 	}
 }

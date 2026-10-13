@@ -1,6 +1,10 @@
 package keepass
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 const sampleXML = `<?xml version="1.0" encoding="utf-8"?>
 <KeePassFile><Root><Group><Name>Root</Name>
@@ -47,4 +51,62 @@ func TestParseSecrets(t *testing.T) {
 	if _, err := LookupSecret(entries, "MISSING"); err == nil {
 		t.Error("expected not-found error for MISSING")
 	}
+}
+
+func TestCheckEngineFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "keepassxc-cli")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngineFile(bin); err != nil {
+		t.Errorf("private binary should pass: %v", err)
+	}
+
+	if err := os.Chmod(bin, 0775); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngineFile(bin); err == nil {
+		t.Error("group-writable binary should be refused")
+	}
+	if err := os.Chmod(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(dir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngineFile(bin); err == nil {
+		t.Error("binary in a world-writable directory should be refused")
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	linkDir := t.TempDir()
+	if err := os.Chmod(linkDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, "keepassxc-cli")
+	if err := os.Symlink(bin, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngineFile(link); err == nil {
+		t.Error("link in a world-writable PATH directory should be refused")
+	}
+}
+
+func TestCheckEngineFileAcceptsSystemBinary(t *testing.T) {
+	for _, p := range []string{"/usr/bin/keepassxc-cli", "/bin/sh"} {
+		if _, err := os.Stat(p); err == nil {
+			if err := checkEngineFile(p); err != nil {
+				t.Errorf("%s: %v", p, err)
+			}
+			return
+		}
+	}
+	t.Skip("no system binary to check")
 }

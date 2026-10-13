@@ -212,3 +212,60 @@ func TestValidateEnvNames(t *testing.T) {
 		t.Errorf("error %q mentions valid name", err)
 	}
 }
+
+func TestReadNewPassword(t *testing.T) {
+	answers := func(vals ...string) func(string) string {
+		return func(string) string {
+			v := vals[0]
+			vals = vals[1:]
+			return v
+		}
+	}
+	if pw, err := readNewPassword("/k.kdbx", answers("pw", "pw")); err != nil || pw != "pw" {
+		t.Errorf("matching: pw=%q err=%v", pw, err)
+	}
+	if _, err := readNewPassword("/k.kdbx", answers("pw", "typo")); err == nil {
+		t.Error("mismatch should fail")
+	}
+	if _, err := readNewPassword("/k.kdbx", answers("")); err == nil {
+		t.Error("empty password should fail")
+	}
+}
+
+func TestConfiguredTitles(t *testing.T) {
+	dir := t.TempDir()
+	tmpl := filepath.Join(dir, "conf.tmpl")
+	if err := os.WriteFile(tmpl, []byte("token={{TMPL}}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {Secrets: map[string]string{"A": "DEF"}},
+		"tool":    {Stdin: []string{"IN"}, Askpass: "ASK", Templates: []config.Template{{Name: "c", Path: tmpl}}},
+		"other":   {Secrets: map[string]string{"B": "OTHER"}},
+	}}
+	got := ConfiguredTitles(cfg, "tool")
+	for _, name := range []string{"DEF", "IN", "ASK", "TMPL"} {
+		if !got[name] {
+			t.Errorf("%s should be granted: %v", name, got)
+		}
+	}
+	if got["OTHER"] {
+		t.Error("titles of another section must not be granted")
+	}
+}
+
+func TestResolveAskpassReads(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {AskpassReads: 2},
+		"restic":  {AskpassReads: 4},
+	}}
+	if r := Resolve(cfg, "git", Overrides{}); r.AskpassReads != 2 {
+		t.Errorf("default: %d", r.AskpassReads)
+	}
+	if r := Resolve(cfg, "restic", Overrides{}); r.AskpassReads != 4 {
+		t.Errorf("tool section: %d", r.AskpassReads)
+	}
+	if r := Resolve(cfg, "restic", Overrides{AskpassReads: 7}); r.AskpassReads != 7 {
+		t.Errorf("flag: %d", r.AskpassReads)
+	}
+}

@@ -20,6 +20,7 @@ type Section struct {
 	Files         []string          `json:"files,omitempty"`
 	Templates     []Template        `json:"templates,omitempty"`
 	Askpass       string            `json:"askpass,omitempty"`
+	AskpassReads  int               `json:"askpass-reads,omitempty"`
 }
 
 type CacheConfig struct {
@@ -40,6 +41,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	WarnUnsafePermissions(path)
 
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {

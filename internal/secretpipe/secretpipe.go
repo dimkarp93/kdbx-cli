@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const DefaultAskpassReads = 1
+
 type Set struct {
 	dir  string
 	wg   sync.WaitGroup
@@ -39,6 +41,10 @@ func (s *Set) File(name, value string) (*os.File, error) {
 		f.Close()
 		return nil, err
 	}
+	if err := sealAnonFile(f); err != nil {
+		f.Close()
+		return nil, err
+	}
 	if _, err := f.Seek(0, 0); err != nil {
 		f.Close()
 		return nil, err
@@ -46,7 +52,7 @@ func (s *Set) File(name, value string) (*os.File, error) {
 	return f, nil
 }
 
-func (s *Set) Askpass(name, value string) (string, error) {
+func (s *Set) Askpass(name, value string, reads int) (string, error) {
 	if err := s.makeDir(); err != nil {
 		return "", err
 	}
@@ -55,12 +61,19 @@ func (s *Set) Askpass(name, value string) (string, error) {
 		return "", fmt.Errorf("cannot create fifo for %q: %w", name, err)
 	}
 	script := filepath.Join(s.dir, "askpass.sh")
-	body := "#!/bin/sh\nexec head -n 1 " + shellQuote(fifo) + "\n"
+	body := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"Username*|*'(yes/no'*) exit 1 ;;\n" +
+		"esac\n" +
+		"exec head -n 1 " + shellQuote(fifo) + "\n"
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		return "", err
 	}
+	if reads <= 0 {
+		reads = DefaultAskpassReads
+	}
 	s.wg.Add(1)
-	go s.feed(fifo, value+"\n")
+	go s.feed(fifo, value+"\n", reads)
 	return script, nil
 }
 
@@ -94,14 +107,16 @@ func (s *Set) makeDir() error {
 
 // The helper takes only the first line, so a reader that lingers after its own read and
 // picks up a second copy still sees the right secret.
-func (s *Set) feed(path, value string) {
+func (s *Set) feed(path, value string, reads int) {
 	defer s.wg.Done()
-	for {
+	for served := 0; ; served++ {
 		f, err := openWhenRead(path, s.done)
 		if err != nil {
 			return
 		}
-		f.WriteString(value)
+		if served < reads {
+			f.WriteString(value)
+		}
 		f.Close()
 		select {
 		case <-s.done:
