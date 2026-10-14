@@ -85,9 +85,7 @@ func (c Cache) Remember(keyStore, password string) {
 	if !c.enabled {
 		return
 	}
-	if err := store.set(storeKey(keyStore), password, c.ttl); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: cannot cache password:", err)
-	}
+	c.Grant(keyStore, password, nil)
 }
 
 func (c Cache) Forget(keyStore string) {
