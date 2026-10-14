@@ -2,6 +2,7 @@ package term
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,8 @@ import (
 )
 
 var stdinReader = bufio.NewReader(os.Stdin)
+
+var ErrNoTerminal = errors.New("password can be read only from a real terminal; run kdbx-cli from a terminal (or cache the password with the \"cached\" config section) and retry")
 
 func IsInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
@@ -60,6 +63,10 @@ func ReadWithPrefill(prompt, prefill string) string {
 		}
 	}
 	return string(buf)
+}
+
+func hasRealTerminal() bool {
+	panic("not implemented")
 }
 
 func openTTY() *os.File {
