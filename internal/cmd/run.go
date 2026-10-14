@@ -25,14 +25,8 @@ func cmdRun(flags runFlags, child []string) int {
 		keepass.CheckEngine()
 	}
 
-	cfgPath := flags.configPath
-	if cfgPath == "" {
-		cfgPath = config.DefaultPath()
-	}
-	cfg := config.Config{}
-	if c, err := config.Load(cfgPath); err == nil {
-		cfg = c
-	} else if !os.IsNotExist(err) {
+	cfgPath, cfg, err := loadRunConfig(flags.configPath)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -306,7 +300,18 @@ func withAskpass(env []string, script string) []string {
 }
 
 func loadRunConfig(configPath string) (string, config.Config, error) {
-	panic("not implemented")
+	cfgPath := configPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultPath()
+	}
+	cfg, err := config.Load(cfgPath)
+	if err == nil {
+		return cfgPath, cfg, nil
+	}
+	if os.IsNotExist(err) {
+		return cfgPath, config.Config{}, nil
+	}
+	return cfgPath, config.Config{}, err
 }
 
 func requestedTitles(res domain.Resolved) ([]string, error) {
