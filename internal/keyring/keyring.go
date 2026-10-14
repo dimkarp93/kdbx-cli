@@ -160,5 +160,11 @@ func (c Cache) Granted(keyStore string) []string {
 }
 
 func (c Cache) Grant(keyStore, password string, titles []string) {
-	panic("not implemented")
+	if !c.enabled {
+		return
+	}
+	merged := mergeTitles(c.Granted(keyStore), titles)
+	if err := store.set(storeKey(keyStore), encodeEntry(entry{Password: password, Titles: merged}), c.ttl); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: cannot cache password:", err)
+	}
 }
