@@ -2,6 +2,7 @@ package term
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,8 @@ import (
 )
 
 var stdinReader = bufio.NewReader(os.Stdin)
+
+var ErrNoTerminal = errors.New("password can be read only from a real terminal; run kdbx-cli from a terminal (or cache the password with the \"cached\" config section) and retry")
 
 func IsInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
@@ -62,6 +65,23 @@ func ReadWithPrefill(prompt, prefill string) string {
 	return string(buf)
 }
 
+func hasRealTerminal() bool {
+	tty := openTTY()
+	if tty == nil {
+		return false
+	}
+	defer tty.Close()
+	if !term.IsTerminal(int(tty.Fd())) {
+		return false
+	}
+	for _, f := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
+		if term.IsTerminal(int(f.Fd())) {
+			return true
+		}
+	}
+	return false
+}
+
 func openTTY() *os.File {
 	f, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -71,11 +91,12 @@ func openTTY() *os.File {
 }
 
 func confirmYN(question string) bool {
+	if !hasRealTerminal() {
+		return false
+	}
 	tty := openTTY()
 	if tty == nil {
-		fmt.Print(question + " [y/N]: ")
-		line, _ := stdinReader.ReadString('\n')
-		return strings.EqualFold(strings.TrimSpace(line), "y")
+		return false
 	}
 	defer tty.Close()
 	fmt.Fprint(tty, question+" [y/N]: ")
@@ -91,15 +112,16 @@ func Confirm(question string, assumeYes bool) bool {
 	return confirmYN(question)
 }
 
-func ReadPassword(prompt string) string {
+func ReadPassword(prompt string) (string, error) {
 	if v := os.Getenv("KDBX_CLI_PASSWORD"); v != "" {
-		return v
+		return v, nil
+	}
+	if !hasRealTerminal() {
+		return "", ErrNoTerminal
 	}
 	tty := openTTY()
 	if tty == nil {
-		fmt.Print(prompt)
-		line, _ := stdinReader.ReadString('\n')
-		return strings.TrimRight(line, "\r\n")
+		return "", ErrNoTerminal
 	}
 	defer tty.Close()
 
@@ -108,8 +130,8 @@ func ReadPassword(prompt string) string {
 	pw, err := term.ReadPassword(fd)
 	if err != nil {
 		fmt.Fprintln(tty)
-		return ""
+		return "", err
 	}
 	fmt.Fprintln(tty)
-	return string(pw)
+	return string(pw), nil
 }
