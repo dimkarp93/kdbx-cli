@@ -81,7 +81,12 @@ func cmdRun(flags runFlags, child []string) int {
 	}
 
 	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, tool)
-	out, _, err := domain.UnlockExport(keyStore, keyring.New(cfg.Cache), prompt, titlesGranted(titles, domain.ConfiguredTitles(cfg, tool)))
+	cache := keyring.New(cfg.Cache)
+	granted := domain.ConfiguredTitles(cfg, tool)
+	for _, name := range cache.Granted(keyStore) {
+		granted[name] = true
+	}
+	out, _, err := domain.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
