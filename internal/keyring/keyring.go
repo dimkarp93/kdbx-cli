@@ -149,7 +149,14 @@ func mergeTitles(current, added []string) []string {
 }
 
 func (c Cache) Granted(keyStore string) []string {
-	panic("not implemented")
+	if !c.enabled {
+		return nil
+	}
+	raw, err := store.get(storeKey(keyStore))
+	if err != nil {
+		return nil
+	}
+	return decodeEntry(raw).Titles
 }
 
 func (c Cache) Grant(keyStore, password string, titles []string) {
