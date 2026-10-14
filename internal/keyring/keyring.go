@@ -66,6 +66,10 @@ func New(c *config.CacheConfig) Cache {
 	return Cache{enabled: true, ttl: ttl}
 }
 
+func (c Cache) Enabled() bool {
+	return c.enabled
+}
+
 func (c Cache) Get(keyStore string) (string, bool) {
 	if !c.enabled {
 		return "", false
