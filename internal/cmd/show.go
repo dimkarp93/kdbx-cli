@@ -79,6 +79,9 @@ func printStoreViews(configPath string, cacheConfig *config.CacheConfig, views [
 			st := cache.Status(v.Path)
 			if st.Cached {
 				fmt.Printf("      [cached, expires in %s]\n", formatDuration(st.ExpiresIn))
+				if line := grantedLine(cache, v.Path); line != "" {
+					fmt.Printf("      %s\n", line)
+				}
 			} else {
 				fmt.Printf("      [not cached]\n")
 			}
