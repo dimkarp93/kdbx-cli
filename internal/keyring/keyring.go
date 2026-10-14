@@ -70,8 +70,12 @@ func (c Cache) Get(keyStore string) (string, bool) {
 	if !c.enabled {
 		return "", false
 	}
-	pw, err := store.get(storeKey(keyStore))
-	if err != nil || pw == "" {
+	raw, err := store.get(storeKey(keyStore))
+	if err != nil {
+		return "", false
+	}
+	pw := decodeEntry(raw).Password
+	if pw == "" {
 		return "", false
 	}
 	return pw, true
