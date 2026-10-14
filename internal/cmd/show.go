@@ -86,6 +86,14 @@ func printStoreViews(configPath string, cacheConfig *config.CacheConfig, views [
 	}
 }
 
+func grantedLine(cache keyring.Cache, keyStore string) string {
+	granted := cache.Granted(keyStore)
+	if len(granted) == 0 {
+		return ""
+	}
+	return "granted via load: " + strings.Join(granted, ", ")
+}
+
 func formatDuration(d time.Duration) string {
 	d = d.Truncate(time.Second)
 	h := int(d.Hours())
