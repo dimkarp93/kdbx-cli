@@ -110,3 +110,28 @@ func ForgetAll() (int, error) {
 	dropAllLegacy()
 	return n, err
 }
+
+type entry struct {
+	Password string   `json:"password"`
+	Titles   []string `json:"titles,omitempty"`
+}
+
+func encodeEntry(e entry) string {
+	panic("not implemented")
+}
+
+func decodeEntry(raw string) entry {
+	panic("not implemented")
+}
+
+func mergeTitles(current, added []string) []string {
+	panic("not implemented")
+}
+
+func (c Cache) Granted(keyStore string) []string {
+	panic("not implemented")
+}
+
+func (c Cache) Grant(keyStore, password string, titles []string) {
+	panic("not implemented")
+}
