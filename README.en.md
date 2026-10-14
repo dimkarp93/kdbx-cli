@@ -79,7 +79,7 @@ Flags:
 - `--askpass-reads=N` — how many times the helper hands out the secret (defaults to 1).
 - `--dry-run` — do not run the command and do not touch the store: print the resolved plan (see below).
 
-On startup `kdbx-cli` asks for the store password (input is hidden, read from `/dev/tty`). Cancel with `Ctrl+C` / `Ctrl+D`.
+On startup `kdbx-cli` asks for the store password (input is hidden, read from `/dev/tty`). Cancel with `Ctrl+C` / `Ctrl+D`. The password is asked only from a real terminal: when launched without one (for example as an MCP server through `claude mcp add`), `kdbx-cli` fails unless the password is in the cache (see the `cached` section).
 
 ### Example
 
