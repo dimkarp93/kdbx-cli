@@ -49,6 +49,13 @@ func Execute(info buildinfo.Info) {
 		path, _ := parseConfigArgs("forget", args[1:])
 		cmdForget(path)
 		return
+	case "load":
+		flags, err := parseRunFlags(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(cmdLoad(flags))
 	case "migrate":
 		path, from, to := parseMigrateArgs(args[1:])
 		cmdMigrate(path, from, to)
@@ -105,6 +112,9 @@ func usage() {
   kdbx-cli check  [--config <path>] [-y]
   kdbx-cli show   [--config <path>]
   kdbx-cli forget [--config <path>]
+  kdbx-cli load   [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+                  [--stdin=name,...] [--secret-file=name,...]
+                  [--template=name:path,...] [--askpass=name]
   kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
   kdbx-cli completion bash|zsh
   kdbx-cli install-completions|uninstall-completions [bash|zsh|all]
@@ -123,6 +133,10 @@ Commands:
            to open the selected .kdbx in the KeePassXC GUI.
   forget   Clear every cached key-store password, including stores no
            longer referenced by the config.
+
+  load     Ask for the master password once and allow the cache to serve
+           the secrets named by the given flags in later runs; repeated
+           loads add titles, forget or the cache TTL drops them.
 
   migrate  Upgrade the config file to the current schema version
            (--from defaults to 0, --to to the current version).
