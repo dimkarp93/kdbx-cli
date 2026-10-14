@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -125,7 +126,16 @@ func decodeEntry(raw string) entry {
 }
 
 func mergeTitles(current, added []string) []string {
-	panic("not implemented")
+	seen := make(map[string]bool, len(current)+len(added))
+	var out []string
+	for _, title := range append(append([]string{}, current...), added...) {
+		if !seen[title] {
+			seen[title] = true
+			out = append(out, title)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (c Cache) Granted(keyStore string) []string {
