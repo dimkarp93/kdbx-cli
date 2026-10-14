@@ -47,21 +47,10 @@ func cmdRun(flags runFlags, child []string) int {
 		fmt.Fprintln(os.Stderr, "no key-store configured: set it in", cfgPath, "or pass --key-store")
 		return 1
 	}
-	titles := res.AllTitles()
-	tmplTitles, err := res.TemplateTitles()
+	titles, err := requestedTitles(res)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
-	}
-	seenTitles := make(map[string]bool, len(titles))
-	for _, name := range titles {
-		seenTitles[name] = true
-	}
-	for _, name := range tmplTitles {
-		if !seenTitles[name] {
-			seenTitles[name] = true
-			titles = append(titles, name)
-		}
 	}
 	if len(titles) == 0 {
 		fmt.Fprintf(os.Stderr, "no secrets configured for %q in %s (or via flags)\n", tool, cfgPath)
@@ -315,5 +304,20 @@ func loadRunConfig(configPath string) (string, config.Config, error) {
 }
 
 func requestedTitles(res domain.Resolved) ([]string, error) {
-	panic("not implemented")
+	titles := res.AllTitles()
+	tmplTitles, err := res.TemplateTitles()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(titles))
+	for _, name := range titles {
+		seen[name] = true
+	}
+	for _, name := range tmplTitles {
+		if !seen[name] {
+			seen[name] = true
+			titles = append(titles, name)
+		}
+	}
+	return titles, nil
 }
