@@ -54,6 +54,7 @@ var completionSpec = shellcomplete.Spec{
 		{Name: "check", Flags: configFlags},
 		{Name: "show", Flags: readOnlyFlags},
 		{Name: "forget", Flags: readOnlyFlags},
+		{Name: "load", Flags: loadFlags},
 		{Name: "migrate", Flags: migrateFlags},
 		{Name: "help"},
 		{Name: "version"},
