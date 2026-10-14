@@ -66,7 +66,20 @@ func ReadWithPrefill(prompt, prefill string) string {
 }
 
 func hasRealTerminal() bool {
-	panic("not implemented")
+	tty := openTTY()
+	if tty == nil {
+		return false
+	}
+	defer tty.Close()
+	if !term.IsTerminal(int(tty.Fd())) {
+		return false
+	}
+	for _, f := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
+		if term.IsTerminal(int(f.Fd())) {
+			return true
+		}
+	}
+	return false
 }
 
 func openTTY() *os.File {
