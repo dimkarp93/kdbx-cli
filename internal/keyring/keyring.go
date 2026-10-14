@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,11 +119,16 @@ type entry struct {
 }
 
 func encodeEntry(e entry) string {
-	panic("not implemented")
+	data, _ := json.Marshal(e)
+	return string(data)
 }
 
 func decodeEntry(raw string) entry {
-	panic("not implemented")
+	var e entry
+	if err := json.Unmarshal([]byte(raw), &e); err != nil || e.Password == "" {
+		return entry{Password: raw}
+	}
+	return e
 }
 
 func mergeTitles(current, added []string) []string {
