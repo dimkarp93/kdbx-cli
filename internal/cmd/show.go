@@ -79,11 +79,22 @@ func printStoreViews(configPath string, cacheConfig *config.CacheConfig, views [
 			st := cache.Status(v.Path)
 			if st.Cached {
 				fmt.Printf("      [cached, expires in %s]\n", formatDuration(st.ExpiresIn))
+				if line := grantedLine(cache, v.Path); line != "" {
+					fmt.Printf("      %s\n", line)
+				}
 			} else {
 				fmt.Printf("      [not cached]\n")
 			}
 		}
 	}
+}
+
+func grantedLine(cache keyring.Cache, keyStore string) string {
+	granted := cache.Granted(keyStore)
+	if len(granted) == 0 {
+		return ""
+	}
+	return "granted via load: " + strings.Join(granted, ", ")
 }
 
 func formatDuration(d time.Duration) string {
@@ -189,6 +200,9 @@ func (m showTUI) View() string {
 				st := m.cache.Status(v.Path)
 				if st.Cached {
 					b.WriteString(hintStyle.Render(fmt.Sprintf("        [cached, expires in %s]", formatDuration(st.ExpiresIn))) + "\n")
+					if line := grantedLine(m.cache, v.Path); line != "" {
+						b.WriteString(hintStyle.Render("        "+line) + "\n")
+					}
 				} else {
 					b.WriteString(hintStyle.Render("        [not cached]") + "\n")
 				}

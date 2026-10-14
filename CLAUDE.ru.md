@@ -31,6 +31,9 @@ kdbx-cli config  [--config <path>] [-y]
 kdbx-cli check   [--config <path>] [-y]
 kdbx-cli show    [--config <path>]
 kdbx-cli forget  [--config <path>]
+kdbx-cli load    [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+                 [--stdin=name,...] [--secret-file=name,...]
+                 [--template=name:path,...] [--askpass=name]
 kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 ```
 
@@ -44,7 +47,7 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 
 **Версионирование конфига.** Тулза зарелизилась, поэтому формат конфига меняется только явно: любое несовместимое изменение схемы (переименование/переворот/удаление поля, смена типа) обязано поднять `config.CurrentVersion`, добавить шаг `N → N+1` в `steps` (`internal/config/migrate.go`, работает над сырым JSON) и покрыть его тестом. `config.Save` всегда пишет текущую версию в конфиг. `kdbx-cli migrate [--from N] [--to M]` (по умолчанию `--from=0`, `--to=config.CurrentVersion`) применяет цепочку шагов к файлу на месте; если файл уже на `--to`, это не ошибка, а при несовпадении версии файла с `--from` — ошибка.
 
-Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` за интерфейсом `backend`: на Linux — kernel keyring (`kernel_linux.go`, `keyctl` через `golang.org/x/sys/unix`, ключ `kdbx-cli:<канонический путь>` из `storeKey`, TTL — `KEYCTL_SET_TIMEOUT`), на остальных ОС — OS-keyring через `github.com/zalando/go-keyring` (`secretservice_other.go`, JSON с `expires_at`). `domain.UnlockExport(…, allowCache)` — единая точка «достать пароль (кэш→prompt) + export»; кэш читается, только если все запрошенные Title есть в конфиге тулзы (`domain.ConfiguredTitles`). `keyring.New(cfg.Cache)` строит политику. `kdbx-cli forget` (`cmdForget` → `keyring.ForgetAll`) удаляет все ключи `kdbx-cli:*` и старые записи Secret Service. В тестах подменяется `store` (backend) и keyring-обёртки (`keyringSet/Get/Delete/DeleteAll`). Без keyring деградирует (miss + warning, не падает).
+Кэш пароля (`internal/keyring`): opt-in только через `cached`-секцию (`enabled`, `ttl`); никаких флагов/env. Хранит master-пароль `.kdbx` и `Title`, разрешённые через `kdbx-cli load`, как JSON `entry{Password, Titles}` (`encodeEntry`/`decodeEntry`; голый пароль от прежних версий декодируется как запись без `Title`) за интерфейсом `backend`, для которого значение непрозрачно: на Linux — kernel keyring (`kernel_linux.go`, `keyctl` через `golang.org/x/sys/unix`, ключ `kdbx-cli:<канонический путь>` из `storeKey`, TTL — `KEYCTL_SET_TIMEOUT`), на остальных ОС — OS-keyring через `github.com/zalando/go-keyring` (`secretservice_other.go`, JSON с `expires_at`). `domain.UnlockExport(…, allowCache)` — единая точка «достать пароль (кэш→prompt) + export»; кэш читается, только если все запрошенные Title есть в конфиге тулзы (`domain.ConfiguredTitles`) или в `Cache.Granted`. `keyring.New(cfg.Cache)` строит политику. `Cache.Grant` объединяет `Title` с живой записью и перезапускает TTL, `Cache.Remember` сохраняет существующие `Title`. `kdbx-cli load` (`cmdLoad`) всегда спрашивает пароль (`UnlockExport` с `allowCache=false`), проверяет наличие каждого `Title` и вызывает `Cache.Grant`; резолвит секцию `default` плюс флаги и требует включённой секции `cached`. Разрешения исчезают только вместе с записью. `kdbx-cli forget` (`cmdForget` → `keyring.ForgetAll`) удаляет все ключи `kdbx-cli:*` и старые записи Secret Service. В тестах подменяется `store` (backend) и keyring-обёртки (`keyringSet/Get/Delete/DeleteAll`). Без keyring деградирует (miss + warning, не падает).
 
 ## Структура
 
@@ -53,20 +56,21 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 - `cmd/kdbx-cli/main.go` (package `main`) — только `var version` (через `-X main.version`) и вызов `cmd.Execute(version)`.
 - `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save` (`Load` предупреждает о небезопасных правах через `WarnUnsafePermissions`/`PermissionWarnings`), `CurrentVersion`, `Migrate` (шаги миграции схемы); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine` (находит `keepassxc-cli`, проверяет права через `checkEngineFile` и закрепляет путь в `enginePath`), `Run` (вызов закреплённого `keepassxc-cli`), парсинг KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
-- `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Forget/Status`, `ForgetAll`, интерфейс `backend` (`kernelBackend` на Linux, `secretServiceBackend` на остальных ОС), `storeKey`, подменяемые `keyringSet/Get/Delete/DeleteAll` (go-keyring).
+- `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Grant/Granted/Enabled/Forget/Status`, `entry`/`mergeTitles`, `ForgetAll`, интерфейс `backend` (`kernelBackend` на Linux, `secretServiceBackend` на остальных ОС), `storeKey`, подменяемые `keyringSet/Get/Delete/DeleteAll` (go-keyring).
 - `internal/term` — терминальный ввод через `/dev/tty` (`KDBX_CLI_PASSWORD` для тестов): `ReadPassword` (возвращает `ErrNoTerminal`, если нет настоящего терминала), `ReadWithPrefill` (fallback-ввод), `Confirm` (Y/N, учитывает `-y`), `IsInteractive`.
 - `internal/secretpipe` — доставка секретов вне env: `Set.File` (анонимный `memfd` с правами `0600`, запечатанный `sealAnonFile`, отдаётся ребёнку через `cmd.ExtraFiles` как `/dev/fd/N`), `Set.Askpass(name, value, reads)` (FIFO в каталоге `0700` + скрипт, который отказывает на `Username*`/`(yes/no` и делает `head -n 1`; горутина `feed` отдаёт секрет первым `reads` читателям, по умолчанию `DefaultAskpassReads` = 1, остальным — пустой ответ), `Set.Close`.
 - `internal/domain` — логика приложения: `Resolve` (слияние `default` → секция тулзы → флаги, типы `Overrides`/`Resolved`, `Resolved.AllTitles`), `TemplateTitles`/`RenderTemplate`/`Resolved.TemplateTitles` (сканирование `{{Title}}` в содержимом шаблона и рендер с JSON-экранированием для путей `.json`), `Mapping`/`MappingsFromMap`/`MappingsToMap`/`SortMappings`/`ValidateEnvNames`, `UnlockExport` (кэш→prompt→export), `AggregateStores`/`AggregateStoreMappings`, `gatherMissing`, `ReconcileStores` (отчёт + создание недостающего), `BuildStoreViews`/`StoreView`.
 - `internal/cmd` — CLI-слой:
-  - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`migrate`/`version`/run-режим), `usage`, `parseConfigArgs`.
+  - `execute.go` — `Execute(version)`: разбор argv, диспетчеризация (`config`/`check`/`show`/`forget`/`load`/`migrate`/`version`/run-режим), `usage`, `parseConfigArgs`.
   - `args.go` — `splitArgs` (по `--`), `parseRunFlags`, `mergeSecretsFlag` (`name:env` → `dst[env]=name`), `splitTitles`, `parseTemplatesFlag`, тип `runFlags` и его `overrides()`.
   - `harden_linux.go`/`harden_other.go` — `hardenProcess` (`PR_SET_DUMPABLE=0` в начале `Execute`).
-  - `run.go` — `cmdRun`: резолв → (если `--dry-run` → `printPlan`) → пароль (`titlesGranted` решает, можно ли брать его из кэша) → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
+  - `run.go` — `cmdRun` (хелперы `loadRunConfig`, `requestedTitles` общие с `load`): резолв → (если `--dry-run` → `printPlan`) → пароль (`titlesGranted` решает, можно ли брать его из кэша, учитывая и `Cache.Granted`) → export → доставка по всем каналам (env, `stdinPayload`, `substitutePlaceholders` + `ExtraFiles`, `withAskpass`) → запуск дочерней команды, проброс кода возврата.
   - `plan.go` — `printPlan` и хелперы dry-run (`describeSection`, `renderCommand`, `shellQuote`).
   - `migrate.go` — `parseMigrateArgs`, `cmdMigrate`.
   - `commands.go` — `cmdConfig` (TTY → TUI, иначе `configFallback`; после сохранения — `ReconcileStores` для default), `cmdCheck`, `cmdForget`.
   - `tui.go` — Bubble Tea-модель настройки `default`: поле `key-store` с автодополнением пути (`refreshPathSuggestions`, `deleteLastPathSegment` на `alt+backspace`, раскрытие `~` на `tab`), построчный редактор маппингов с хоткеями (`a`/`e`/`d`/`↑↓`/`tab`/`ctrl+s`/`esc`) и легендой.
-  - `show.go` — `cmdShow`: read-only TUI (`showTUI`) со списком `.kdbx` (навигация `↑/↓`), `Enter` → открыть в GUI через `openInKeePassXC` (var, стабится в тестах); не-TTY → печать.
+  - `load.go` — `cmdLoad` (всегда спрашивает пароль, проверяет `Title`, `Cache.Grant`), `printLoaded`.
+  - `show.go` — `cmdShow`: read-only TUI (`showTUI`) со списком `.kdbx` (навигация `↑/↓`), `Enter` → открыть в GUI через `openInKeePassXC` (var, стабится в тестах); не-TTY → печать; для закэшированного хранилища печатает и `Title`, разрешённые через `load` (`grantedLine`).
 
 ## Сборка и тесты
 

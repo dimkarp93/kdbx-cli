@@ -412,11 +412,26 @@ On Linux the password is kept in the user's **kernel keyring** (`keyctl`, key `k
 
 - What is cached is the **master password** of the `.kdbx` — it opens the **whole** database, not just the injected variables.
 - Any process running as the same user can read the key (`keyctl print`) — the same trust boundary as `/proc/<pid>/environ`. There is no per-application separation.
-- To keep `kdbx-cli` from becoming an oracle for the whole database, the cached password is used only when **every** requested secret is listed in the config for that tool. Asking for other `Title`s through flags (`--secrets`, `--stdin`, …) prompts for the password again.
+- To keep `kdbx-cli` from becoming an oracle for the whole database, the cached password is used only when **every** requested secret is listed in the config for that tool or was allowed with `kdbx-cli load`. Asking for any other `Title`s through flags (`--secrets`, `--stdin`, …) prompts for the password again.
 - Hibernation writes memory, kernel keys included, to swap. If swap is not encrypted, the password ends up on disk.
 - If the kernel keyring is unavailable (for example in a container), the cache simply does not work and the password is requested as usual.
 
 After upgrading from a version that cached in Secret Service, run `kdbx-cli forget` (see [Upgrading](#upgrading)).
+
+### Allowing flag-provided titles with `load`
+
+To let the cache serve `Title`s that are not in the config, for example a one-off `--template`, allow them explicitly:
+
+```sh
+kdbx-cli load --template=mcp:./mcp.json
+kdbx-cli load --secrets=github-token:GITHUB_TOKEN
+```
+
+`load` accepts the same flags as a run (except `--dry-run`) but takes no command. It always asks for the password, even if one is already cached, checks that every `Title` exists in the `.kdbx`, and stores the `Title`s next to the cached password. Later runs may then use the cache for any combination of these `Title`s and the ones in the config.
+
+- Repeated `load` calls only add `Title`s. They are dropped together with the password: by `kdbx-cli forget` or when the `ttl` runs out. Each `load` restarts the `ttl`, so it extends the life of the earlier `Title`s too.
+- `load` needs the `cached` section enabled and uses the `default` section plus the flags.
+- `kdbx-cli show` lists the `Title`s allowed through `load` under the key-store.
 
 ## Security limitations
 

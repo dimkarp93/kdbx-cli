@@ -5,7 +5,7 @@ On Linux `kdbx-cli` caches the `.kdbx` master password in the **kernel keyring**
 ## How the password is stored
 
 - **Where:** the user keyring (`@u`). It is shared by all of the user's processes and lives until reboot.
-- **Key:** type `user`, name `kdbx-cli:<absolute path to the .kdbx with symlinks resolved>`, data — the password.
+- **Key:** type `user`, name `kdbx-cli:<absolute path to the .kdbx with symlinks resolved>`, data — a JSON object with the password and the `Title`s allowed through `kdbx-cli load` (a bare password written by earlier versions is still read).
 - **Lifetime:** `KEYCTL_SET_TIMEOUT` = the config's `ttl`. When it runs out, the kernel removes the key, not `kdbx-cli`.
 - **Permissions:** `3f010000` — the owner has every right, everyone else may only view metadata.
 
@@ -33,7 +33,7 @@ keyctl invalidate <id>
 |---|---|
 | `keyctl show @u` | List the user's keys: id, permissions, type, name |
 | `keyctl search @u user <name>` | Key id by name |
-| `keyctl print <id>` | The key's data, i.e. **the password in plain text** |
+| `keyctl print <id>` | The key's data, i.e. **the password in plain text** inside the JSON |
 | `keyctl timeout <id> <sec>` | Set a new lifetime |
 | `keyctl invalidate <id>` | Remove the key right away |
 

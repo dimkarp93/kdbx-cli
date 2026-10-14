@@ -25,14 +25,8 @@ func cmdRun(flags runFlags, child []string) int {
 		keepass.CheckEngine()
 	}
 
-	cfgPath := flags.configPath
-	if cfgPath == "" {
-		cfgPath = config.DefaultPath()
-	}
-	cfg := config.Config{}
-	if c, err := config.Load(cfgPath); err == nil {
-		cfg = c
-	} else if !os.IsNotExist(err) {
+	cfgPath, cfg, err := loadRunConfig(flags.configPath)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -53,21 +47,10 @@ func cmdRun(flags runFlags, child []string) int {
 		fmt.Fprintln(os.Stderr, "no key-store configured: set it in", cfgPath, "or pass --key-store")
 		return 1
 	}
-	titles := res.AllTitles()
-	tmplTitles, err := res.TemplateTitles()
+	titles, err := requestedTitles(res)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
-	}
-	seenTitles := make(map[string]bool, len(titles))
-	for _, name := range titles {
-		seenTitles[name] = true
-	}
-	for _, name := range tmplTitles {
-		if !seenTitles[name] {
-			seenTitles[name] = true
-			titles = append(titles, name)
-		}
 	}
 	if len(titles) == 0 {
 		fmt.Fprintf(os.Stderr, "no secrets configured for %q in %s (or via flags)\n", tool, cfgPath)
@@ -81,7 +64,12 @@ func cmdRun(flags runFlags, child []string) int {
 	}
 
 	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, tool)
-	out, _, err := domain.UnlockExport(keyStore, keyring.New(cfg.Cache), prompt, titlesGranted(titles, domain.ConfiguredTitles(cfg, tool)))
+	cache := keyring.New(cfg.Cache)
+	granted := domain.ConfiguredTitles(cfg, tool)
+	for _, name := range cache.Granted(keyStore) {
+		granted[name] = true
+	}
+	out, _, err := domain.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -298,4 +286,38 @@ func withAskpass(env []string, script string) []string {
 		out = append(out, k+"="+set[k])
 	}
 	return out
+}
+
+func loadRunConfig(configPath string) (string, config.Config, error) {
+	cfgPath := configPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultPath()
+	}
+	cfg, err := config.Load(cfgPath)
+	if err == nil {
+		return cfgPath, cfg, nil
+	}
+	if os.IsNotExist(err) {
+		return cfgPath, config.Config{}, nil
+	}
+	return cfgPath, config.Config{}, err
+}
+
+func requestedTitles(res domain.Resolved) ([]string, error) {
+	titles := res.AllTitles()
+	tmplTitles, err := res.TemplateTitles()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(titles))
+	for _, name := range titles {
+		seen[name] = true
+	}
+	for _, name := range tmplTitles {
+		if !seen[name] {
+			seen[name] = true
+			titles = append(titles, name)
+		}
+	}
+	return titles, nil
 }

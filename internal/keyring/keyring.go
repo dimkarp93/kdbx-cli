@@ -1,9 +1,11 @@
 package keyring
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -64,12 +66,20 @@ func New(c *config.CacheConfig) Cache {
 	return Cache{enabled: true, ttl: ttl}
 }
 
+func (c Cache) Enabled() bool {
+	return c.enabled
+}
+
 func (c Cache) Get(keyStore string) (string, bool) {
 	if !c.enabled {
 		return "", false
 	}
-	pw, err := store.get(storeKey(keyStore))
-	if err != nil || pw == "" {
+	raw, err := store.get(storeKey(keyStore))
+	if err != nil {
+		return "", false
+	}
+	pw := decodeEntry(raw).Password
+	if pw == "" {
 		return "", false
 	}
 	return pw, true
@@ -79,9 +89,7 @@ func (c Cache) Remember(keyStore, password string) {
 	if !c.enabled {
 		return
 	}
-	if err := store.set(storeKey(keyStore), password, c.ttl); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: cannot cache password:", err)
-	}
+	c.Grant(keyStore, password, nil)
 }
 
 func (c Cache) Forget(keyStore string) {
@@ -109,4 +117,56 @@ func ForgetAll() (int, error) {
 	n, err := store.forgetAll()
 	dropAllLegacy()
 	return n, err
+}
+
+type entry struct {
+	Password string   `json:"password"`
+	Titles   []string `json:"titles,omitempty"`
+}
+
+func encodeEntry(e entry) string {
+	data, _ := json.Marshal(e)
+	return string(data)
+}
+
+func decodeEntry(raw string) entry {
+	var e entry
+	if err := json.Unmarshal([]byte(raw), &e); err != nil || e.Password == "" {
+		return entry{Password: raw}
+	}
+	return e
+}
+
+func mergeTitles(current, added []string) []string {
+	seen := make(map[string]bool, len(current)+len(added))
+	var out []string
+	for _, title := range append(append([]string{}, current...), added...) {
+		if !seen[title] {
+			seen[title] = true
+			out = append(out, title)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (c Cache) Granted(keyStore string) []string {
+	if !c.enabled {
+		return nil
+	}
+	raw, err := store.get(storeKey(keyStore))
+	if err != nil {
+		return nil
+	}
+	return decodeEntry(raw).Titles
+}
+
+func (c Cache) Grant(keyStore, password string, titles []string) {
+	if !c.enabled {
+		return
+	}
+	merged := mergeTitles(c.Granted(keyStore), titles)
+	if err := store.set(storeKey(keyStore), encodeEntry(entry{Password: password, Titles: merged}), c.ttl); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: cannot cache password:", err)
+	}
 }

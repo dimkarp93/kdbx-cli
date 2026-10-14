@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -165,5 +166,84 @@ func TestForgetAll(t *testing.T) {
 	}
 	if runtime.GOOS == "linux" && !legacyCleared {
 		t.Error("legacy Secret Service entries should be cleared on Linux")
+	}
+}
+
+func TestMergeTitles(t *testing.T) {
+	got := mergeTitles([]string{"b", "a"}, []string{"c", "a"})
+	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Errorf("merge: %v", got)
+	}
+	if got := mergeTitles(nil, nil); len(got) != 0 {
+		t.Errorf("empty merge: %v", got)
+	}
+}
+
+func TestDecodeEntry(t *testing.T) {
+	cases := map[string]entry{
+		"plain-pw":                             {Password: "plain-pw"},
+		`{"password":"pw"}`:                    {Password: "pw"},
+		`{"password":"pw","titles":["a","b"]}`: {Password: "pw", Titles: []string{"a", "b"}},
+		`{"titles":["a"]}`:                     {Password: `{"titles":["a"]}`},
+		`{broken`:                              {Password: `{broken`},
+	}
+	for raw, want := range cases {
+		if got := decodeEntry(raw); !reflect.DeepEqual(got, want) {
+			t.Errorf("decode %q: got %+v, want %+v", raw, got, want)
+		}
+	}
+}
+
+func TestEncodeDecodeRoundTrip(t *testing.T) {
+	want := entry{Password: "p\"w{", Titles: []string{"a", "b"}}
+	if got := decodeEntry(encodeEntry(want)); !reflect.DeepEqual(got, want) {
+		t.Errorf("round trip: %+v", got)
+	}
+}
+
+func TestGrantMergesAndRememberKeepsTitles(t *testing.T) {
+	withFakeBackend(t)
+	c := Cache{enabled: true, ttl: time.Minute}
+
+	c.Grant("/k.kdbx", "pw", []string{"b"})
+	c.Grant("/k.kdbx", "pw", []string{"a", "b"})
+	if got := c.Granted("/k.kdbx"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("granted: %v", got)
+	}
+
+	c.Remember("/k.kdbx", "new-pw")
+	if pw, ok := c.Get("/k.kdbx"); !ok || pw != "new-pw" {
+		t.Errorf("remember: ok=%v pw=%q", ok, pw)
+	}
+	if got := c.Granted("/k.kdbx"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("remember dropped titles: %v", got)
+	}
+
+	c.Forget("/k.kdbx")
+	if got := c.Granted("/k.kdbx"); len(got) != 0 {
+		t.Errorf("forget should drop titles: %v", got)
+	}
+}
+
+func TestGrantDisabledCache(t *testing.T) {
+	fake := withFakeBackend(t)
+	Cache{}.Grant("/k.kdbx", "pw", []string{"a"})
+	if len(fake.keys) != 0 {
+		t.Error("disabled cache must not store anything")
+	}
+	if got := (Cache{}).Granted("/k.kdbx"); got != nil {
+		t.Errorf("disabled cache granted: %v", got)
+	}
+}
+
+func TestLegacyRawEntryReadable(t *testing.T) {
+	fake := withFakeBackend(t)
+	c := Cache{enabled: true, ttl: time.Minute}
+	fake.keys[storeKey("/k.kdbx")] = "legacy-pw"
+	if pw, ok := c.Get("/k.kdbx"); !ok || pw != "legacy-pw" {
+		t.Errorf("legacy: ok=%v pw=%q", ok, pw)
+	}
+	if got := c.Granted("/k.kdbx"); len(got) != 0 {
+		t.Errorf("legacy granted: %v", got)
 	}
 }
