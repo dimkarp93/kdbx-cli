@@ -304,3 +304,11 @@ func withAskpass(env []string, script string) []string {
 	}
 	return out
 }
+
+func loadRunConfig(configPath string) (string, config.Config, error) {
+	panic("not implemented")
+}
+
+func requestedTitles(res domain.Resolved) ([]string, error) {
+	panic("not implemented")
+}
