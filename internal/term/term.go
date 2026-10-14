@@ -115,11 +115,12 @@ func ReadPassword(prompt string) (string, error) {
 	if v := os.Getenv("KDBX_CLI_PASSWORD"); v != "" {
 		return v, nil
 	}
+	if !hasRealTerminal() {
+		return "", ErrNoTerminal
+	}
 	tty := openTTY()
 	if tty == nil {
-		fmt.Print(prompt)
-		line, _ := stdinReader.ReadString('\n')
-		return strings.TrimRight(line, "\r\n"), nil
+		return "", ErrNoTerminal
 	}
 	defer tty.Close()
 
@@ -128,7 +129,7 @@ func ReadPassword(prompt string) (string, error) {
 	pw, err := term.ReadPassword(fd)
 	if err != nil {
 		fmt.Fprintln(tty)
-		return "", nil
+		return "", err
 	}
 	fmt.Fprintln(tty)
 	return string(pw), nil
