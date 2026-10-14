@@ -91,11 +91,12 @@ func openTTY() *os.File {
 }
 
 func confirmYN(question string) bool {
+	if !hasRealTerminal() {
+		return false
+	}
 	tty := openTTY()
 	if tty == nil {
-		fmt.Print(question + " [y/N]: ")
-		line, _ := stdinReader.ReadString('\n')
-		return strings.EqualFold(strings.TrimSpace(line), "y")
+		return false
 	}
 	defer tty.Close()
 	fmt.Fprint(tty, question+" [y/N]: ")
