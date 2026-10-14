@@ -222,12 +222,12 @@ func ReconcileStores(byStore map[string][]string, assumeYes bool, cache keyring.
 	}
 }
 
-func readNewPassword(path string, read func(prompt string) string) (string, error) {
-	pw := read("Set a password for the new key-store " + path + ": ")
+func readNewPassword(path string, read func(prompt string) (string, error)) (string, error) {
+	pw, _ := read("Set a password for the new key-store " + path + ": ")
 	if pw == "" {
 		return "", fmt.Errorf("password for %s cannot be empty", path)
 	}
-	if read("Repeat the password for "+path+": ") != pw {
+	if again, _ := read("Repeat the password for " + path + ": "); again != pw {
 		return "", fmt.Errorf("passwords for %s do not match", path)
 	}
 	return pw, nil

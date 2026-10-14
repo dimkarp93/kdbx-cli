@@ -19,7 +19,7 @@ func UnlockExport(keyStore string, cache keyring.Cache, prompt string, allowCach
 		}
 	}
 
-	pw := term.ReadPassword(prompt)
+	pw, _ := term.ReadPassword(prompt)
 	if pw == "" {
 		return "", "", fmt.Errorf("password cannot be empty")
 	}

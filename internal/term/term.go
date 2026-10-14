@@ -91,15 +91,15 @@ func Confirm(question string, assumeYes bool) bool {
 	return confirmYN(question)
 }
 
-func ReadPassword(prompt string) string {
+func ReadPassword(prompt string) (string, error) {
 	if v := os.Getenv("KDBX_CLI_PASSWORD"); v != "" {
-		return v
+		return v, nil
 	}
 	tty := openTTY()
 	if tty == nil {
 		fmt.Print(prompt)
 		line, _ := stdinReader.ReadString('\n')
-		return strings.TrimRight(line, "\r\n")
+		return strings.TrimRight(line, "\r\n"), nil
 	}
 	defer tty.Close()
 
@@ -108,8 +108,8 @@ func ReadPassword(prompt string) string {
 	pw, err := term.ReadPassword(fd)
 	if err != nil {
 		fmt.Fprintln(tty)
-		return ""
+		return "", nil
 	}
 	fmt.Fprintln(tty)
-	return string(pw)
+	return string(pw), nil
 }

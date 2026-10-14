@@ -214,11 +214,11 @@ func TestValidateEnvNames(t *testing.T) {
 }
 
 func TestReadNewPassword(t *testing.T) {
-	answers := func(vals ...string) func(string) string {
-		return func(string) string {
+	answers := func(vals ...string) func(string) (string, error) {
+		return func(string) (string, error) {
 			v := vals[0]
 			vals = vals[1:]
-			return v
+			return v, nil
 		}
 	}
 	if pw, err := readNewPassword("/k.kdbx", answers("pw", "pw")); err != nil || pw != "pw" {
