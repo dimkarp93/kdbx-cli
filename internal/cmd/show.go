@@ -200,6 +200,9 @@ func (m showTUI) View() string {
 				st := m.cache.Status(v.Path)
 				if st.Cached {
 					b.WriteString(hintStyle.Render(fmt.Sprintf("        [cached, expires in %s]", formatDuration(st.ExpiresIn))) + "\n")
+					if line := grantedLine(m.cache, v.Path); line != "" {
+						b.WriteString(hintStyle.Render("        "+line) + "\n")
+					}
 				} else {
 					b.WriteString(hintStyle.Render("        [not cached]") + "\n")
 				}
