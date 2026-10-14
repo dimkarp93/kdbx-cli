@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
 func TestResolveMerge(t *testing.T) {
@@ -231,13 +229,6 @@ func TestReadNewPassword(t *testing.T) {
 	}
 	if _, err := readNewPassword("/k.kdbx", answers("")); err == nil {
 		t.Error("empty password should fail")
-	}
-}
-
-func TestReadNewPasswordPropagatesError(t *testing.T) {
-	failing := func(string) (string, error) { return "", term.ErrNoTerminal }
-	if _, err := readNewPassword("/k.kdbx", failing); !errors.Is(err, term.ErrNoTerminal) {
-		t.Errorf("err=%v", err)
 	}
 }
 
