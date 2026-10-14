@@ -12,6 +12,17 @@ var readOnlyFlags = []shellcomplete.Flag{
 	{Name: "--config", Files: true},
 }
 
+var loadFlags = []shellcomplete.Flag{
+	{Name: "--config", Files: true},
+	{Name: "--key-store", Files: true},
+	{Name: "--secrets"},
+	{Name: "--stdin"},
+	{Name: "--stdin-keep-open", Bool: true},
+	{Name: "--secret-file"},
+	{Name: "--template"},
+	{Name: "--askpass"},
+}
+
 var migrateFlags = []shellcomplete.Flag{
 	{Name: "--config", Files: true},
 	{Name: "--from"},
