@@ -2,8 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 )
@@ -23,6 +26,7 @@ type ConfigResult struct {
 	Cache    *config.CacheConfig
 	Canceled bool
 }
+
 type configTUI struct {
 	keyStore keyStoreField
 	list     pairList
@@ -40,23 +44,34 @@ func RunConfig(keyStore string, pairs []resolve.Mapping, cacheConfig *config.Cac
 	}
 	return final.(configTUI).result(), nil
 }
+
 func newConfigTUI(keyStore string, pairs []resolve.Mapping, cacheConfig *config.CacheConfig) configTUI {
-	return configTUI{keyStore: newKeyStoreField(keyStore), list: pairList{pairs: pairs}, editor: newPairEditor(), cache: newCacheForm(cacheConfig), mode: modeKeyStore}
+	return configTUI{
+		keyStore: newKeyStoreField(keyStore),
+		list:     pairList{pairs: pairs},
+		editor:   newPairEditor(),
+		cache:    newCacheForm(cacheConfig),
+		mode:     modeKeyStore,
+	}
 }
+
 func (m configTUI) result() ConfigResult {
 	if m.canceled {
 		return ConfigResult{Canceled: true}
 	}
 	return ConfigResult{KeyStore: m.keyStore.value(), Pairs: m.list.pairs, Cache: m.cache.config()}
 }
+
 func (m configTUI) Init() tea.Cmd {
 	return textinput.Blink
 }
+
 func (m configTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	k, isKey := msg.(tea.KeyMsg)
 	if isKey && k.String() == "ctrl+c" {
 		return m.cancel()
 	}
+
 	switch m.mode {
 	case modeKeyStore:
 		return m.updateKeyStore(msg)
@@ -71,10 +86,12 @@ func (m configTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func (m configTUI) cancel() (tea.Model, tea.Cmd) {
 	m.canceled = true
 	return m, tea.Quit
 }
+
 func (m configTUI) updateKeyStore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
@@ -86,10 +103,12 @@ func (m configTUI) updateKeyStore(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+
 	var cmd tea.Cmd
 	m.keyStore, cmd = m.keyStore.update(msg)
 	return m, cmd
 }
+
 func (m configTUI) updateList(key string) (tea.Model, tea.Cmd) {
 	m.err = ""
 	switch key {
@@ -103,6 +122,7 @@ func (m configTUI) updateList(key string) (tea.Model, tea.Cmd) {
 	}
 	return m.listAction(key)
 }
+
 func (m configTUI) listAction(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "up", "k":
@@ -123,12 +143,14 @@ func (m configTUI) listAction(key string) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
 func (m configTUI) startEdit(index int) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.mode = modeEdit
 	m.editor, cmd = m.editor.start(index, m.list.at(index))
 	return m, cmd
 }
+
 func (m configTUI) updateEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if k, ok := msg.(tea.KeyMsg); ok {
@@ -144,21 +166,25 @@ func (m configTUI) updateEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.commitEdit()
 		}
 	}
+
 	m.editor, cmd = m.editor.update(msg)
 	return m, cmd
 }
+
 func (m configTUI) commitEdit() (tea.Model, tea.Cmd) {
 	pair := m.editor.value()
 	if msg := m.editError(pair); msg != "" {
 		m.err = msg
 		return m, nil
 	}
+
 	m.list = m.list.upsert(m.editor.index, pair)
 	m.editor = m.editor.blur()
 	m.mode = modeList
 	m.err = ""
 	return m, nil
 }
+
 func (m configTUI) editError(pair resolve.Mapping) string {
 	if pair.Name == "" || pair.Env == "" {
 		return "both secret name and env are required"
@@ -168,6 +194,7 @@ func (m configTUI) editError(pair resolve.Mapping) string {
 	}
 	return ""
 }
+
 func (m configTUI) updateCache(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if k, ok := msg.(tea.KeyMsg); ok {
@@ -188,12 +215,41 @@ func (m configTUI) updateCache(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
+
 	m.cache, cmd = m.cache.update(msg)
 	return m, cmd
 }
+
 func (m configTUI) View() string {
-	panic("not implemented")
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Configure secrets — default section"))
+	b.WriteString("\n\n")
+
+	b.WriteString(labelStyle.Render(sectionLabel("key-store", m.mode == modeKeyStore)) + "\n")
+	b.WriteString("    " + m.keyStore.input.View() + "\n\n")
+	b.WriteString(m.list.view(m.mode == modeList))
+	if m.mode == modeEdit {
+		b.WriteString(m.editor.view())
+	}
+	b.WriteString(m.cache.view(m.mode == modeCache))
+
+	if m.err != "" {
+		b.WriteString("\n" + errStyle.Render("  ! "+m.err) + "\n")
+	}
+	b.WriteString("\n" + hintStyle.Render("  "+m.legend()) + "\n")
+	return b.String()
 }
+
 func (m configTUI) legend() string {
-	panic("not implemented")
+	switch m.mode {
+	case modeKeyStore:
+		return "tab complete (~ expands) · alt+⌫ delete dir · ↑/↓ suggestions · enter next · esc cancel"
+	case modeList:
+		return "↑/↓ move · a add · e edit · d delete · tab edit path · c cache · ctrl+s save · esc cancel"
+	case modeEdit:
+		return "tab switch field · enter ok · esc back"
+	case modeCache:
+		return "space toggle · tab TTL · ctrl+s save · esc back"
+	}
+	return ""
 }
