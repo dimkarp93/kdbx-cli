@@ -3,6 +3,8 @@ package resolve
 import (
 	"cmp"
 	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 	"maps"
 	"slices"
 )
@@ -71,13 +73,22 @@ func positiveOr(value, fallback int) int {
 	return fallback
 }
 func (r Resolved) AllTitles() []string {
-	panic("not implemented")
+	titles := slices.Concat(slices.Collect(maps.Values(r.Secrets)), r.Stdin, r.Files, []string{r.Askpass})
+	return utils.Unique(utils.Filter(titles, isNonEmpty))
 }
 func isNonEmpty(s string) bool {
-	panic("not implemented")
+	return s != ""
 }
 func (r Resolved) TemplateTitles() ([]string, error) {
-	panic("not implemented")
+	perTemplate := make([][]string, 0, len(r.Templates))
+	for _, t := range r.Templates {
+		names, err := tmpl.Titles(t.Path)
+		if err != nil {
+			return nil, err
+		}
+		perTemplate = append(perTemplate, names)
+	}
+	return utils.Unique(slices.Concat(perTemplate...)), nil
 }
 func ConfiguredTitles(cfg config.Config, tool string) []string {
 	panic("not implemented")
