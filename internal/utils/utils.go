@@ -5,13 +5,27 @@ import (
 )
 
 func Filter[T any](items []T, keep func(T) bool) []T {
-	panic("not implemented")
+	out := make([]T, 0, len(items))
+	for _, item := range items {
+		if keep(item) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 func Map[T, R any](items []T, fn func(T) R) []R {
-	panic("not implemented")
+	out := make([]R, 0, len(items))
+	for _, item := range items {
+		out = append(out, fn(item))
+	}
+	return out
 }
 func FlatMap[T, R any](items []T, fn func(T) []R) []R {
-	panic("not implemented")
+	var out []R
+	for _, item := range items {
+		out = append(out, fn(item)...)
+	}
+	return out
 }
 func Unique[T comparable](items []T) []T {
 	panic("not implemented")
