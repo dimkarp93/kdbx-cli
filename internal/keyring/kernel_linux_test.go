@@ -5,90 +5,117 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseProcKeysTimeout(t *testing.T) {
 	cases := map[string]time.Duration{"45s": 45 * time.Second, "9m": 9 * time.Minute, "2h": 2 * time.Hour, "1d": 24 * time.Hour, "1w": 7 * 24 * time.Hour}
 	for in, want := range cases {
-		if got, ok := parseProcKeysTimeout(in); !ok || got != want {
-			t.Errorf("%s: got %v ok=%v", in, got, ok)
-		}
+		t.Run(in, func(t *testing.T) {
+			got, ok := parseProcKeysTimeout(in)
+			require.True(t, ok)
+			assert.Equal(t, want, got)
+		})
 	}
+}
+
+func TestParseProcKeysTimeoutRejects(t *testing.T) {
 	for _, in := range []string{"perm", "expd", "", "s", "0s", "xs"} {
-		if _, ok := parseProcKeysTimeout(in); ok {
-			t.Errorf("%q should not parse", in)
-		}
+		t.Run(in, func(t *testing.T) {
+			_, ok := parseProcKeysTimeout(in)
+			assert.False(t, ok)
+		})
 	}
+}
+
+func testKey(suffix string) string {
+	return fmt.Sprintf("%stest-%d-%s", keyPrefix, os.Getpid(), suffix)
 }
 
 func kernelKeyringOrSkip(t *testing.T, key string) kernelBackend {
 	t.Helper()
+
 	b := kernelBackend{}
 	if err := b.set(key, "probe", time.Minute); err != nil {
 		t.Skipf("kernel keyring unavailable: %v", err)
 	}
+
+	t.Cleanup(func() { _ = b.forget(key) })
 	return b
 }
 
 func TestKernelBackendRoundTrip(t *testing.T) {
-	key := fmt.Sprintf("%stest-%d-roundtrip", keyPrefix, os.Getpid())
+	key := testKey("roundtrip")
 	b := kernelKeyringOrSkip(t, key)
-	defer b.forget(key)
 
-	if err := b.set(key, "s3cret", time.Minute); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := b.get(key); err != nil || got != "s3cret" {
-		t.Fatalf("get: %q %v", got, err)
-	}
-	if d, ok := b.expiresIn(key); !ok || d <= 0 || d > time.Minute {
-		t.Errorf("expiresIn: %v %v", d, ok)
-	}
-	if err := b.forget(key); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := b.get(key); err == nil {
-		t.Error("forgotten key should not be readable")
-	}
-	if err := b.forget(key); err != nil {
-		t.Errorf("forgetting a missing key should succeed: %v", err)
-	}
+	setErr := b.set(key, "s3cret", time.Minute)
+	got, getErr := b.get(key)
+	expiresIn, hasTimeout := b.expiresIn(key)
+
+	t.Run("stores", func(t *testing.T) {
+		assert.NoError(t, setErr)
+	})
+	t.Run("reads back", func(t *testing.T) {
+		require.NoError(t, getErr)
+		assert.Equal(t, "s3cret", got)
+	})
+	t.Run("reports timeout within ttl", func(t *testing.T) {
+		require.True(t, hasTimeout)
+		assert.Greater(t, expiresIn, time.Duration(0))
+		assert.LessOrEqual(t, expiresIn, time.Minute)
+	})
+}
+
+func TestKernelBackendForget(t *testing.T) {
+	key := testKey("forget")
+	b := kernelKeyringOrSkip(t, key)
+
+	forgetErr := b.forget(key)
+	_, getErr := b.get(key)
+
+	t.Run("succeeds", func(t *testing.T) {
+		assert.NoError(t, forgetErr)
+	})
+	t.Run("key unreadable", func(t *testing.T) {
+		assert.Error(t, getErr)
+	})
+	t.Run("forgetting missing key succeeds", func(t *testing.T) {
+		assert.NoError(t, b.forget(key))
+	})
 }
 
 func TestKernelBackendExpires(t *testing.T) {
-	key := fmt.Sprintf("%stest-%d-expiry", keyPrefix, os.Getpid())
+	key := testKey("expiry")
 	b := kernelKeyringOrSkip(t, key)
-	defer b.forget(key)
+	require.NoError(t, b.set(key, "s3cret", time.Second))
 
-	if err := b.set(key, "s3cret", time.Second); err != nil {
-		t.Fatal(err)
-	}
 	time.Sleep(2 * time.Second)
-	if _, err := b.get(key); err == nil {
-		t.Error("key should expire without any reader deleting it")
-	}
+	_, err := b.get(key)
+
+	assert.Error(t, err)
 }
 
 func TestKernelBackendForgetAll(t *testing.T) {
-	first := fmt.Sprintf("%stest-%d-all-1", keyPrefix, os.Getpid())
-	second := fmt.Sprintf("%stest-%d-all-2", keyPrefix, os.Getpid())
+	first, second := testKey("all-1"), testKey("all-2")
 	b := kernelKeyringOrSkip(t, first)
-	defer b.forget(first)
-	defer b.forget(second)
+	setErr := b.set(second, "two", time.Minute)
+	t.Cleanup(func() { _ = b.forget(second) })
 
-	if err := b.set(second, "two", time.Minute); err != nil {
-		t.Fatal(err)
-	}
-	n, err := forgetWithPrefix(fmt.Sprintf("%stest-%d-all-", keyPrefix, os.Getpid()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Errorf("removed %d keys, want 2", n)
-	}
+	n, err := forgetWithPrefix(testKey("all-"))
+
+	t.Run("stores second key", func(t *testing.T) {
+		require.NoError(t, setErr)
+	})
+	t.Run("removes both keys", func(t *testing.T) {
+		require.NoError(t, err)
+		assert.Equal(t, 2, n)
+	})
 	for _, key := range []string{first, second} {
-		if _, err := b.get(key); err == nil {
-			t.Errorf("%s should be gone", key)
-		}
+		t.Run(key+" gone", func(t *testing.T) {
+			_, getErr := b.get(key)
+			assert.Error(t, getErr)
+		})
 	}
 }
