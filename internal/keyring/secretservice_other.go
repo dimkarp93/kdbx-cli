@@ -6,21 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/zalando/go-keyring"
 )
 
-type secretServiceBackend struct{}
+type secretServiceBackend struct {
+	service keyring.Keyring
+}
 
-func newBackend() backend { return secretServiceBackend{} }
+func newBackend(service keyring.Keyring) backend { return secretServiceBackend{service: service} }
 
-func dropLegacy(keyStore string) {}
+func dropLegacy(keyring.Keyring, string) {}
 
 type expiringSecret struct {
 	Password  string `json:"password"`
 	ExpiresAt int64  `json:"expires_at"`
 }
 
-func (secretServiceBackend) read(key string) (expiringSecret, error) {
-	raw, err := keyringGet(keyringService, key)
+func (b secretServiceBackend) read(key string) (expiringSecret, error) {
+	raw, err := b.service.Get(keyringService, key)
 	if err != nil {
 		return expiringSecret{}, err
 	}
@@ -37,23 +41,23 @@ func (b secretServiceBackend) get(key string) (string, error) {
 		return "", err
 	}
 	if time.Now().Unix() >= es.ExpiresAt {
-		_ = keyringDelete(keyringService, key)
+		_ = b.service.Delete(keyringService, key)
 		return "", errors.New("cache entry expired")
 	}
 	return es.Password, nil
 }
 
-func (secretServiceBackend) set(key, password string, ttl time.Duration) error {
+func (b secretServiceBackend) set(key, password string, ttl time.Duration) error {
 	data, _ := json.Marshal(expiringSecret{Password: password, ExpiresAt: time.Now().Add(ttl).Unix()})
-	return keyringSet(keyringService, key, string(data))
+	return b.service.Set(keyringService, key, string(data))
 }
 
-func (secretServiceBackend) forget(key string) error {
-	return keyringDelete(keyringService, key)
+func (b secretServiceBackend) forget(key string) error {
+	return b.service.Delete(keyringService, key)
 }
 
-func (secretServiceBackend) forgetAll() (int, error) {
-	return -1, keyringDeleteAll(keyringService)
+func (b secretServiceBackend) forgetAll() (int, error) {
+	return -1, b.service.DeleteAll(keyringService)
 }
 
 func (b secretServiceBackend) expiresIn(key string) (time.Duration, bool) {
@@ -63,10 +67,10 @@ func (b secretServiceBackend) expiresIn(key string) (time.Duration, bool) {
 	}
 	remaining := time.Until(time.Unix(es.ExpiresAt, 0))
 	if remaining <= 0 {
-		_ = keyringDelete(keyringService, key)
+		_ = b.service.Delete(keyringService, key)
 		return 0, false
 	}
 	return remaining, true
 }
 
-func dropAllLegacy() {}
+func dropAllLegacy(keyring.Keyring) {}

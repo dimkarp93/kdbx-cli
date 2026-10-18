@@ -4,56 +4,52 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestExpandHome(t *testing.T) {
-	t.Setenv("HOME", "/h")
-	if got := ExpandHome("~/x"); got != "/h/x" {
-		t.Fatalf("got %q", got)
-	}
+type defaultPathCandidates struct {
+	legacy  string
+	primary string
 }
 
-func TestDirFollowsXDG(t *testing.T) {
-	t.Setenv("HOME", "/h")
-	t.Setenv("XDG_CONFIG_HOME", "")
-	if got := Dir(); got != "/h/.config/kdbx-cli" {
-		t.Fatalf("got %q", got)
-	}
-	t.Setenv("XDG_CONFIG_HOME", "/x")
-	if got := Dir(); got != "/x/kdbx-cli" {
-		t.Fatalf("got %q", got)
-	}
-}
+func useXDGHome(t *testing.T) defaultPathCandidates {
+	t.Helper()
 
-func TestDefaultPathFallsBackToTheLegacyFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 
-	legacy := filepath.Join(home, ".config", "kdbx-cli", "default")
-	newPath := filepath.Join(home, "xdg", "kdbx-cli", "default")
+	return defaultPathCandidates{
+		legacy:  filepath.Join(home, ".config", "kdbx-cli", "default"),
+		primary: filepath.Join(home, "xdg", "kdbx-cli", "default"),
+	}
+}
 
-	if got := DefaultPath(); got != newPath {
-		t.Fatalf("nothing exists: got %q, want %q", got, newPath)
-	}
+func touch(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o600))
+}
 
-	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacy, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := DefaultPath(); got != legacy {
-		t.Fatalf("legacy exists: got %q, want %q", got, legacy)
-	}
+func TestDefaultPathWithoutFiles(t *testing.T) {
+	paths := useXDGHome(t)
 
-	if err := os.MkdirAll(filepath.Dir(newPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(newPath, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := DefaultPath(); got != newPath {
-		t.Fatalf("both exist: got %q, want %q", got, newPath)
-	}
+	assert.Equal(t, paths.primary, DefaultPath())
+}
+
+func TestDefaultPathFallsBackToTheLegacyFile(t *testing.T) {
+	paths := useXDGHome(t)
+	touch(t, paths.legacy)
+
+	assert.Equal(t, paths.legacy, DefaultPath())
+}
+
+func TestDefaultPathPrefersPrimaryOverLegacy(t *testing.T) {
+	paths := useXDGHome(t)
+	touch(t, paths.legacy)
+	touch(t, paths.primary)
+
+	assert.Equal(t, paths.primary, DefaultPath())
 }

@@ -1,173 +1,178 @@
 package secretpipe
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestFileIsReadableRepeatedly(t *testing.T) {
+type scriptRun struct {
+	out []byte
+	err error
+}
+
+func newTestSet(t *testing.T) *Set {
+	t.Helper()
 	s := NewSet()
-	defer s.Close()
+	t.Cleanup(s.Close)
+	return s
+}
 
-	f, err := s.File("repo pw", "s3cret")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
+func secretFile(t *testing.T, s *Set, value string) *os.File {
+	t.Helper()
 
-	cmd := exec.Command("sh", "-c", "cat /dev/fd/3; cat /dev/fd/3")
+	f, err := s.File("pw", value)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	return f
+}
+
+func askpassScript(t *testing.T, s *Set, reads int) string {
+	t.Helper()
+	script, err := s.Askpass("pw", "s3cret", reads)
+	require.NoError(t, err)
+	return script
+}
+
+func withFD3(f *os.File, name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
 	cmd.ExtraFiles = []*os.File{f}
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(out) != "s3crets3cret" {
-		t.Errorf("got %q, want %q", string(out), "s3crets3cret")
-	}
+	return cmd
 }
 
-func TestFileIsOwnerOnly(t *testing.T) {
-	s := NewSet()
-	defer s.Close()
-
-	f, err := s.File("pw", "s3cret")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-
-	cmd := exec.Command("stat", "-L", "-c", "%a", "/dev/fd/3")
-	cmd.ExtraFiles = []*os.File{f}
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(out)); got != "600" {
-		t.Errorf("mode of /dev/fd/3: got %s, want 600", got)
-	}
+func runScript(script, prompt string) scriptRun {
+	out, err := exec.Command(script, prompt).Output()
+	return scriptRun{out: out, err: err}
 }
 
-func TestAskpassScript(t *testing.T) {
-	s := NewSet()
-	defer s.Close()
-
-	script, err := s.Askpass("pw", "s3cret", 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range 3 {
-		out, err := exec.Command(script, "Password:").Output()
-		if err != nil {
-			t.Fatalf("call %d: %v", i, err)
-		}
-		if string(out) != "s3cret\n" {
-			t.Errorf("call %d: got %q", i, string(out))
-		}
-	}
-}
-
-func TestCloseWithoutReader(t *testing.T) {
-	s := NewSet()
-	if _, err := s.Askpass("pw", "s3cret", 0); err != nil {
-		t.Fatal(err)
-	}
-	dir := s.Dir()
-
+func closeWithin(s *Set, timeout time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
 		s.Close()
 		close(done)
 	}()
+
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Close blocked with no reader attached")
-	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Errorf("directory %s was not removed", dir)
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }
 
-func TestAskpassDirIsPrivate(t *testing.T) {
-	s := NewSet()
-	defer s.Close()
+func TestFileIsReadableRepeatedly(t *testing.T) {
+	f := secretFile(t, newTestSet(t), "s3cret")
 
-	if _, err := s.Askpass("pw", "v", 0); err != nil {
-		t.Fatal(err)
-	}
-	fi, err := os.Stat(s.Dir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0700 {
-		t.Errorf("mode: got %o, want 700", fi.Mode().Perm())
+	out, err := withFD3(f, "sh", "-c", "cat /dev/fd/3; cat /dev/fd/3").Output()
+
+	require.NoError(t, err)
+	assert.Equal(t, "s3crets3cret", string(out))
+}
+
+func TestFileIsOwnerOnly(t *testing.T) {
+	f := secretFile(t, newTestSet(t), "s3cret")
+
+	out, err := withFD3(f, "stat", "-L", "-c", "%a", "/dev/fd/3").Output()
+
+	require.NoError(t, err)
+	assert.Equal(t, "600", strings.TrimSpace(string(out)))
+}
+
+func TestFileIsSealed(t *testing.T) {
+	f := secretFile(t, newTestSet(t), "s3cret")
+
+	tamperErr := withFD3(f, "sh", "-c", "echo tampered > /dev/fd/3").Run()
+	out, readErr := withFD3(f, "cat", "/dev/fd/3").Output()
+
+	t.Run("rewrite refused", func(t *testing.T) {
+		assert.Error(t, tamperErr)
+	})
+	t.Run("content intact", func(t *testing.T) {
+		require.NoError(t, readErr)
+		assert.Equal(t, "s3cret", string(out))
+	})
+}
+
+func TestAskpassServesConfiguredReads(t *testing.T) {
+	script := askpassScript(t, newTestSet(t), 3)
+
+	for i := range 3 {
+		run := runScript(script, "Password:")
+		t.Run(fmt.Sprintf("call %d", i+1), func(t *testing.T) {
+			require.NoError(t, run.err)
+			assert.Equal(t, "s3cret\n", string(run.out))
+		})
 	}
 }
 
 func TestAskpassServesOnceByDefault(t *testing.T) {
-	s := NewSet()
-	defer s.Close()
+	script := askpassScript(t, newTestSet(t), 0)
 
-	script, err := s.Askpass("pw", "s3cret", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command(script, "Password:").Output()
-	if err != nil || string(out) != "s3cret\n" {
-		t.Fatalf("first call: %q %v", out, err)
-	}
+	first := runScript(script, "Password:")
 	time.Sleep(50 * time.Millisecond)
-	out, _ = exec.Command(script, "Password:").Output()
-	if string(out) != "" {
-		t.Errorf("second call should get nothing, got %q", out)
-	}
+	second := runScript(script, "Password:")
+
+	t.Run("first call gets secret", func(t *testing.T) {
+		require.NoError(t, first.err)
+		assert.Equal(t, "s3cret\n", string(first.out))
+	})
+	t.Run("second call gets nothing", func(t *testing.T) {
+		assert.Empty(t, second.out)
+	})
 }
 
 func TestAskpassRefusesUsernameAndHostKeyPrompts(t *testing.T) {
-	s := NewSet()
-	defer s.Close()
+	script := askpassScript(t, newTestSet(t), 1)
 
-	script, err := s.Askpass("pw", "s3cret", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	refused := map[string]scriptRun{}
 	for _, prompt := range []string{
 		"Username for 'https://example.com': ",
 		"Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
 	} {
-		out, err := exec.Command(script, prompt).Output()
-		if err == nil || len(out) != 0 {
-			t.Errorf("%q: should be refused, got %q err=%v", prompt, out, err)
-		}
+		refused[prompt] = runScript(script, prompt)
 	}
-	out, err := exec.Command(script, "Password for 'https://alice@example.com': ").Output()
-	if err != nil || string(out) != "s3cret\n" {
-		t.Errorf("password prompt after refusals: %q %v", out, err)
+	password := runScript(script, "Password for 'https://alice@example.com': ")
+
+	for prompt, run := range refused {
+		t.Run("refuses "+prompt, func(t *testing.T) {
+			assert.Error(t, run.err)
+			assert.Empty(t, run.out)
+		})
 	}
+	t.Run("password prompt still served", func(t *testing.T) {
+		require.NoError(t, password.err)
+		assert.Equal(t, "s3cret\n", string(password.out))
+	})
 }
 
-func TestFileIsSealed(t *testing.T) {
+func TestAskpassDirIsPrivate(t *testing.T) {
+	s := newTestSet(t)
+	askpassScript(t, s, 0)
+
+	fi, err := os.Stat(s.Dir())
+
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0700), fi.Mode().Perm())
+}
+
+func TestCloseWithoutReader(t *testing.T) {
 	s := NewSet()
-	defer s.Close()
+	askpassScript(t, s, 0)
+	dir := s.Dir()
 
-	f, err := s.File("pw", "s3cret")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
+	closed := closeWithin(s, 5*time.Second)
 
-	cmd := exec.Command("sh", "-c", "echo tampered > /dev/fd/3")
-	cmd.ExtraFiles = []*os.File{f}
-	if err := cmd.Run(); err == nil {
-		t.Error("child should not be able to rewrite the secret file")
-	}
-	cmd = exec.Command("cat", "/dev/fd/3")
-	cmd.ExtraFiles = []*os.File{f}
-	out, err := cmd.Output()
-	if err != nil || string(out) != "s3cret" {
-		t.Errorf("content after tamper attempt: %q %v", out, err)
-	}
+	t.Run("does not block", func(t *testing.T) {
+		require.True(t, closed)
+	})
+	t.Run("removes directory", func(t *testing.T) {
+		assert.NoDirExists(t, dir)
+	})
 }

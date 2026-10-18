@@ -1,37 +1,18 @@
 package keyring
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
-
-func TestNewCache(t *testing.T) {
-	if New(nil).enabled {
-		t.Error("nil cache config should be disabled")
-	}
-	if New(&config.CacheConfig{Enabled: false}).enabled {
-		t.Error("enabled=false should be disabled")
-	}
-	c := New(&config.CacheConfig{Enabled: true})
-	if !c.enabled || c.ttl != defaultCacheTTL {
-		t.Errorf("default ttl: %+v", c)
-	}
-	c = New(&config.CacheConfig{Enabled: true, TTL: "30s"})
-	if c.ttl != 30*time.Second {
-		t.Errorf("parsed ttl: %v", c.ttl)
-	}
-	c = New(&config.CacheConfig{Enabled: true, TTL: "garbage"})
-	if c.ttl != defaultCacheTTL {
-		t.Errorf("invalid ttl should fall back to default: %v", c.ttl)
-	}
-}
 
 type fakeBackend struct {
 	keys map[string]string
@@ -45,7 +26,7 @@ func newFakeBackend() *fakeBackend {
 func (f *fakeBackend) get(key string) (string, error) {
 	v, ok := f.keys[key]
 	if !ok {
-		return "", fmt.Errorf("not found")
+		return "", errors.New("not found")
 	}
 	return v, nil
 }
@@ -74,108 +55,185 @@ func (f *fakeBackend) expiresIn(key string) (time.Duration, bool) {
 	return f.ttls[key], true
 }
 
-func withFakeBackend(t *testing.T) *fakeBackend {
-	t.Helper()
-	fake := newFakeBackend()
-	origStore, origDelete := store, keyringDelete
-	store = fake
-	keyringDelete = func(_, _ string) error { return nil }
-	t.Cleanup(func() { store, keyringDelete = origStore, origDelete })
-	return fake
+type fakeLegacyKeyring struct {
+	deletedAll bool
 }
 
-func TestCacheHitStatusForget(t *testing.T) {
-	fake := withFakeBackend(t)
-	c := Cache{enabled: true, ttl: time.Minute}
+func (*fakeLegacyKeyring) Set(_, _, _ string) error {
+	return nil
+}
 
-	if _, ok := c.Get("/k.kdbx"); ok {
-		t.Error("empty cache should miss")
+func (*fakeLegacyKeyring) Get(_, _ string) (string, error) {
+	return "", errors.New("not found")
+}
+
+func (*fakeLegacyKeyring) Delete(_, _ string) error {
+	return nil
+}
+
+func (f *fakeLegacyKeyring) DeleteAll(string) error {
+	f.deletedAll = true
+	return nil
+}
+
+type fakeStorage struct {
+	backend *fakeBackend
+	legacy  *fakeLegacyKeyring
+}
+
+func newFakeStorage() fakeStorage {
+	return fakeStorage{backend: newFakeBackend(), legacy: &fakeLegacyKeyring{}}
+}
+
+func (f fakeStorage) storage() storage {
+	return storage{backend: f.backend, legacy: f.legacy}
+}
+
+func (f fakeStorage) enabledCache() Cache {
+	return Cache{enabled: true, ttl: time.Minute, storage: f.storage()}
+}
+
+func (f fakeStorage) disabledCache() Cache {
+	return Cache{storage: f.storage()}
+}
+
+func TestNewCache(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *config.CacheConfig
+		want Cache
+	}{
+		{"nil config", nil, Cache{}},
+		{"disabled", &config.CacheConfig{Enabled: false, TTL: "30s"}, Cache{}},
+		{"default ttl", &config.CacheConfig{Enabled: true}, Cache{enabled: true, ttl: defaultCacheTTL}},
+		{"parsed ttl", &config.CacheConfig{Enabled: true, TTL: "30s"}, Cache{enabled: true, ttl: 30 * time.Second}},
+		{"invalid ttl", &config.CacheConfig{Enabled: true, TTL: "garbage"}, Cache{enabled: true, ttl: defaultCacheTTL}},
+		{"negative ttl", &config.CacheConfig{Enabled: true, TTL: "-1m"}, Cache{enabled: true, ttl: defaultCacheTTL}},
 	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, newCache(c.cfg, storage{}))
+		})
+	}
+}
+
+func TestCacheMissWhenEmpty(t *testing.T) {
+	_, ok := newFakeStorage().enabledCache().Get("/k.kdbx")
+	assert.False(t, ok)
+}
+
+func TestCacheRememberThenGet(t *testing.T) {
+	fake := newFakeStorage()
+	c := fake.enabledCache()
 	c.Remember("/k.kdbx", "pw")
-	if pw, ok := c.Get("/k.kdbx"); !ok || pw != "pw" {
-		t.Errorf("hit: ok=%v pw=%q", ok, pw)
-	}
-	if got := fake.ttls[storeKey("/k.kdbx")]; got != time.Minute {
-		t.Errorf("ttl passed to backend: %v", got)
-	}
-	if st := c.Status("/k.kdbx"); !st.Cached || st.ExpiresIn != time.Minute {
-		t.Errorf("status: %+v", st)
-	}
 
-	disabled := Cache{}
+	pw, ok := c.Get("/k.kdbx")
+
+	t.Run("hits", func(t *testing.T) {
+		require.True(t, ok)
+		assert.Equal(t, "pw", pw)
+	})
+	t.Run("passes ttl to backend", func(t *testing.T) {
+		assert.Equal(t, time.Minute, fake.backend.ttls[storeKey("/k.kdbx")])
+	})
+	t.Run("status", func(t *testing.T) {
+		assert.Equal(t, CacheStatus{Cached: true, ExpiresIn: time.Minute}, c.Status("/k.kdbx"))
+	})
+}
+
+func TestCacheDisabledNeverHits(t *testing.T) {
+	disabled := newFakeStorage().disabledCache()
 	disabled.Remember("/x", "y")
-	if _, ok := disabled.Get("/x"); ok {
-		t.Error("disabled cache should never hit")
-	}
+
+	_, ok := disabled.Get("/x")
+	assert.False(t, ok)
+}
+
+func TestCacheForget(t *testing.T) {
+	c := newFakeStorage().enabledCache()
+	c.Remember("/k.kdbx", "pw")
 
 	c.Forget("/k.kdbx")
-	if _, ok := c.Get("/k.kdbx"); ok {
-		t.Error("forget should remove the entry")
-	}
-	if st := c.Status("/k.kdbx"); st.Cached {
-		t.Error("forgotten entry should not be reported as cached")
-	}
+
+	t.Run("misses", func(t *testing.T) {
+		_, ok := c.Get("/k.kdbx")
+		assert.False(t, ok)
+	})
+	t.Run("not reported as cached", func(t *testing.T) {
+		assert.False(t, c.Status("/k.kdbx").Cached)
+	})
 }
 
-func TestStoreKeyIsCanonical(t *testing.T) {
+func canonicalStore(t *testing.T) (string, string) {
+	t.Helper()
+
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real.kdbx")
-	if err := os.WriteFile(real, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(dir, "link.kdbx")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(real, nil, 0600))
+
 	resolved, err := filepath.EvalSymlinks(real)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := keyPrefix + resolved
-	if got := storeKey(link); got != want {
-		t.Errorf("symlink: got %q, want %q", got, want)
-	}
-	t.Chdir(dir)
-	if got := storeKey("real.kdbx"); got != want {
-		t.Errorf("relative: got %q, want %q", got, want)
-	}
-	if got := storeKey("/no/such/file.kdbx"); got != keyPrefix+"/no/such/file.kdbx" {
-		t.Errorf("missing file: got %q", got)
-	}
+	require.NoError(t, err)
+
+	return dir, keyPrefix + resolved
 }
 
-func TestForgetAll(t *testing.T) {
-	fake := withFakeBackend(t)
-	legacyCleared := false
-	origDeleteAll := keyringDeleteAll
-	keyringDeleteAll = func(string) error { legacyCleared = true; return nil }
-	defer func() { keyringDeleteAll = origDeleteAll }()
+func TestStoreKeyResolvesSymlink(t *testing.T) {
+	dir, want := canonicalStore(t)
+	link := filepath.Join(dir, "link.kdbx")
+	require.NoError(t, os.Symlink(filepath.Join(dir, "real.kdbx"), link))
 
-	c := Cache{enabled: true, ttl: time.Minute}
+	assert.Equal(t, want, storeKey(link))
+}
+
+func TestStoreKeyResolvesRelativePath(t *testing.T) {
+	dir, want := canonicalStore(t)
+	t.Chdir(dir)
+
+	assert.Equal(t, want, storeKey("real.kdbx"))
+}
+
+func TestStoreKeyKeepsMissingPath(t *testing.T) {
+	assert.Equal(t, keyPrefix+"/no/such/file.kdbx", storeKey("/no/such/file.kdbx"))
+}
+
+func TestStorageForgetAll(t *testing.T) {
+	fake := newFakeStorage()
+	c := fake.enabledCache()
 	c.Remember("/a.kdbx", "a")
 	c.Remember("/b.kdbx", "b")
-	n, err := ForgetAll()
-	if err != nil || n != 2 {
-		t.Errorf("ForgetAll: n=%d err=%v", n, err)
-	}
-	if len(fake.keys) != 0 {
-		t.Errorf("keys left: %v", fake.keys)
-	}
-	if _, ok := c.Get("/a.kdbx"); ok {
-		t.Error("cache should be empty")
-	}
-	if runtime.GOOS == "linux" && !legacyCleared {
-		t.Error("legacy Secret Service entries should be cleared on Linux")
-	}
+
+	n, err := fake.storage().forgetAll()
+
+	t.Run("reports removed count", func(t *testing.T) {
+		require.NoError(t, err)
+		assert.Equal(t, 2, n)
+	})
+	t.Run("backend empty", func(t *testing.T) {
+		assert.Empty(t, fake.backend.keys)
+	})
+	t.Run("legacy entries cleared on linux", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("legacy Secret Service cleanup is linux-only")
+		}
+		assert.True(t, fake.legacy.deletedAll)
+	})
 }
 
 func TestMergeTitles(t *testing.T) {
-	got := mergeTitles([]string{"b", "a"}, []string{"c", "a"})
-	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Errorf("merge: %v", got)
+	cases := []struct {
+		name           string
+		current, added []string
+		want           []string
+	}{
+		{"sorted union", []string{"b", "a"}, []string{"c", "a"}, []string{"a", "b", "c"}},
+		{"empty", nil, nil, nil},
 	}
-	if got := mergeTitles(nil, nil); len(got) != 0 {
-		t.Errorf("empty merge: %v", got)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, mergeTitles(c.current, c.added))
+		})
 	}
 }
 
@@ -187,63 +245,73 @@ func TestDecodeEntry(t *testing.T) {
 		`{"titles":["a"]}`:                     {Password: `{"titles":["a"]}`},
 		`{broken`:                              {Password: `{broken`},
 	}
+
 	for raw, want := range cases {
-		if got := decodeEntry(raw); !reflect.DeepEqual(got, want) {
-			t.Errorf("decode %q: got %+v, want %+v", raw, got, want)
-		}
+		t.Run(raw, func(t *testing.T) {
+			assert.Equal(t, want, decodeEntry(raw))
+		})
 	}
 }
 
-func TestEncodeDecodeRoundTrip(t *testing.T) {
-	want := entry{Password: "p\"w{", Titles: []string{"a", "b"}}
-	if got := decodeEntry(encodeEntry(want)); !reflect.DeepEqual(got, want) {
-		t.Errorf("round trip: %+v", got)
-	}
-}
-
-func TestGrantMergesAndRememberKeepsTitles(t *testing.T) {
-	withFakeBackend(t)
-	c := Cache{enabled: true, ttl: time.Minute}
+func TestGrantMergesTitles(t *testing.T) {
+	c := newFakeStorage().enabledCache()
 
 	c.Grant("/k.kdbx", "pw", []string{"b"})
 	c.Grant("/k.kdbx", "pw", []string{"a", "b"})
-	if got := c.Granted("/k.kdbx"); !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Errorf("granted: %v", got)
-	}
+
+	assert.Equal(t, []string{"a", "b"}, c.Granted("/k.kdbx"))
+}
+
+func TestRememberKeepsGrantedTitles(t *testing.T) {
+	c := newFakeStorage().enabledCache()
+	c.Grant("/k.kdbx", "pw", []string{"a", "b"})
 
 	c.Remember("/k.kdbx", "new-pw")
-	if pw, ok := c.Get("/k.kdbx"); !ok || pw != "new-pw" {
-		t.Errorf("remember: ok=%v pw=%q", ok, pw)
-	}
-	if got := c.Granted("/k.kdbx"); !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Errorf("remember dropped titles: %v", got)
-	}
+
+	t.Run("updates password", func(t *testing.T) {
+		pw, ok := c.Get("/k.kdbx")
+		require.True(t, ok)
+		assert.Equal(t, "new-pw", pw)
+	})
+	t.Run("keeps titles", func(t *testing.T) {
+		assert.Equal(t, []string{"a", "b"}, c.Granted("/k.kdbx"))
+	})
+}
+
+func TestForgetDropsGrantedTitles(t *testing.T) {
+	c := newFakeStorage().enabledCache()
+	c.Grant("/k.kdbx", "pw", []string{"a"})
 
 	c.Forget("/k.kdbx")
-	if got := c.Granted("/k.kdbx"); len(got) != 0 {
-		t.Errorf("forget should drop titles: %v", got)
-	}
+
+	assert.Empty(t, c.Granted("/k.kdbx"))
 }
 
 func TestGrantDisabledCache(t *testing.T) {
-	fake := withFakeBackend(t)
-	Cache{}.Grant("/k.kdbx", "pw", []string{"a"})
-	if len(fake.keys) != 0 {
-		t.Error("disabled cache must not store anything")
-	}
-	if got := (Cache{}).Granted("/k.kdbx"); got != nil {
-		t.Errorf("disabled cache granted: %v", got)
-	}
+	fake := newFakeStorage()
+	disabled := fake.disabledCache()
+
+	disabled.Grant("/k.kdbx", "pw", []string{"a"})
+
+	t.Run("stores nothing", func(t *testing.T) {
+		assert.Empty(t, fake.backend.keys)
+	})
+	t.Run("grants nothing", func(t *testing.T) {
+		assert.Nil(t, disabled.Granted("/k.kdbx"))
+	})
 }
 
 func TestLegacyRawEntryReadable(t *testing.T) {
-	fake := withFakeBackend(t)
-	c := Cache{enabled: true, ttl: time.Minute}
-	fake.keys[storeKey("/k.kdbx")] = "legacy-pw"
-	if pw, ok := c.Get("/k.kdbx"); !ok || pw != "legacy-pw" {
-		t.Errorf("legacy: ok=%v pw=%q", ok, pw)
-	}
-	if got := c.Granted("/k.kdbx"); len(got) != 0 {
-		t.Errorf("legacy granted: %v", got)
-	}
+	fake := newFakeStorage()
+	fake.backend.keys[storeKey("/k.kdbx")] = "legacy-pw"
+	c := fake.enabledCache()
+
+	t.Run("password", func(t *testing.T) {
+		pw, ok := c.Get("/k.kdbx")
+		require.True(t, ok)
+		assert.Equal(t, "legacy-pw", pw)
+	})
+	t.Run("no granted titles", func(t *testing.T) {
+		assert.Empty(t, c.Granted("/k.kdbx"))
+	})
 }

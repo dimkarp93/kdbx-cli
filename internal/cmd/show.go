@@ -15,7 +15,9 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
-var openInKeePassXC = func(path string) error {
+type launchFunc func(path string) error
+
+func launchKeePassXC(path string) error {
 	bin, err := exec.LookPath("keepassxc")
 	if err != nil {
 		return fmt.Errorf("keepassxc GUI not found in PATH")
@@ -42,7 +44,7 @@ func cmdShow(path string) {
 		printStoreViews(path, cfg.Cache, views, cache)
 		return
 	}
-	if _, err := tea.NewProgram(newShowTUI(path, cfg.Cache, views, cache)).Run(); err != nil {
+	if _, err := tea.NewProgram(newShowTUI(path, cfg.Cache, views, cache, launchKeePassXC)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tui error:", err)
 		os.Exit(1)
 	}
@@ -116,12 +118,13 @@ type showTUI struct {
 	cacheConfig *config.CacheConfig
 	views       []domain.StoreView
 	cache       keyring.Cache
+	launch      launchFunc
 	cursor      int
 	status      string
 }
 
-func newShowTUI(configPath string, cacheConfig *config.CacheConfig, views []domain.StoreView, cache keyring.Cache) showTUI {
-	return showTUI{configPath: configPath, cacheConfig: cacheConfig, views: views, cache: cache}
+func newShowTUI(configPath string, cacheConfig *config.CacheConfig, views []domain.StoreView, cache keyring.Cache, launch launchFunc) showTUI {
+	return showTUI{configPath: configPath, cacheConfig: cacheConfig, views: views, cache: cache, launch: launch}
 }
 
 func (m showTUI) Init() tea.Cmd { return nil }
@@ -153,7 +156,7 @@ func (m showTUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "✗ file does not exist: " + v.Path
 			return m, nil
 		}
-		if err := openInKeePassXC(v.Path); err != nil {
+		if err := m.launch(v.Path); err != nil {
 			m.status = "✗ " + err.Error()
 		} else {
 			m.status = "→ opened in KeePassXC: " + v.Path

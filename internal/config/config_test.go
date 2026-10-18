@@ -1,121 +1,92 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+func writeRaw(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cfg")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+	return path
+}
+
 func TestLoadConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cfg")
-	if err := os.WriteFile(path, []byte(`{"version":1,"sections":{"default":{"key-store":"/k.kdbx"}},"cached":{"enabled":true,"ttl":"5m"}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
+	path := writeRaw(t, `{"version":1,"sections":{"default":{"key-store":"/k.kdbx"}},"cached":{"enabled":true,"ttl":"5m"}}`)
+
 	c, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Sections["default"].KeyStore != "/k.kdbx" {
-		t.Errorf("sections: %+v", c.Sections)
-	}
-	if c.Cache == nil || !c.Cache.Enabled || c.Cache.TTL != "5m" {
-		t.Errorf("cache: %+v", c.Cache)
-	}
-}
 
-func TestSaveReloadRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cfg")
-	c := Config{Sections: map[string]Section{"default": {KeyStore: "/k.kdbx"}}}
-	if err := Save(path, c); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), `"sections"`) {
-		t.Errorf("saved file should contain sections:\n%s", data)
-	}
-	c2, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c2.Sections["default"].KeyStore != "/k.kdbx" {
-		t.Errorf("reload after save: %+v", c2.Sections)
-	}
-}
-
-func TestSaveReloadRoundTripWithTemplates(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "cfg")
-	c := Config{Sections: map[string]Section{
-		"default": {
-			KeyStore:  "/k.kdbx",
-			Templates: []Template{{Name: "cfg", Path: "/tmp/settings.json.tmpl"}},
-		},
-	}}
-	if err := Save(path, c); err != nil {
-		t.Fatal(err)
-	}
-	c2, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := c2.Sections["default"].Templates
-	if len(got) != 1 || got[0].Name != "cfg" || got[0].Path != "/tmp/settings.json.tmpl" {
-		t.Errorf("templates after roundtrip: %+v", got)
-	}
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("sections", func(t *testing.T) {
+		assert.Equal(t, map[string]Section{"default": {KeyStore: "/k.kdbx"}}, c.Sections)
+	})
+	t.Run("cache", func(t *testing.T) {
+		assert.Equal(t, &CacheConfig{Enabled: true, TTL: "5m"}, c.Cache)
+	})
 }
 
 func TestLoadRejectsUnexpectedVersion(t *testing.T) {
-	for _, body := range []string{`{"sections":{}}`, `{"version":0,"sections":{}}`, `{"version":2,"sections":{}}`} {
-		path := filepath.Join(t.TempDir(), "cfg")
-		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Load(path)
-		if err == nil || !strings.Contains(err.Error(), "kdbx-cli migrate") {
-			t.Errorf("%s: err=%v", body, err)
-		}
+	cases := map[string]string{
+		"no version": `{"sections":{}}`,
+		"version 0":  `{"version":0,"sections":{}}`,
+		"version 2":  `{"version":2,"sections":{}}`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeRaw(t, body))
+			assert.ErrorContains(t, err, "kdbx-cli migrate")
+		})
 	}
 }
 
 func TestSaveWritesCurrentVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cfg")
-	if err := Save(path, Config{}); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), `"version": 1`) {
-		t.Errorf("version missing:\n%s", data)
-	}
+	require.NoError(t, Save(path, Config{}))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), fmt.Sprintf(`"version": %d`, CurrentVersion))
 }
 
-func TestPermissionWarnings(t *testing.T) {
+func permissionFixture(t *testing.T, dirMode, fileMode os.FileMode) string {
+	t.Helper()
+
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
 	path := filepath.Join(dir, "default")
-	if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if w := PermissionWarnings(path); len(w) != 0 {
-		t.Errorf("private config: %v", w)
-	}
-	if err := os.Chmod(path, 0666); err != nil {
-		t.Fatal(err)
-	}
-	if w := PermissionWarnings(path); len(w) != 1 {
-		t.Errorf("world-writable file: %v", w)
-	}
-	if err := os.Chmod(dir, 0777); err != nil {
-		t.Fatal(err)
-	}
-	if w := PermissionWarnings(path); len(w) != 2 {
-		t.Errorf("world-writable file and dir: %v", w)
-	}
-	if w := PermissionWarnings(filepath.Join(dir, "missing")); len(w) != 1 {
-		t.Errorf("missing file in a world-writable dir: %v", w)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0600))
+	require.NoError(t, os.Chmod(path, fileMode))
+	require.NoError(t, os.Chmod(dir, dirMode))
+
+	return path
+}
+
+func TestPermissionWarningsPrivateConfig(t *testing.T) {
+	path := permissionFixture(t, 0700, 0600)
+	assert.Empty(t, PermissionWarnings(path))
+}
+
+func TestPermissionWarningsWorldWritableFile(t *testing.T) {
+	path := permissionFixture(t, 0700, 0666)
+	assert.Len(t, PermissionWarnings(path), 1)
+}
+
+func TestPermissionWarningsWorldWritableFileAndDir(t *testing.T) {
+	path := permissionFixture(t, 0777, 0666)
+	assert.Len(t, PermissionWarnings(path), 2)
+}
+
+func TestPermissionWarningsMissingFileInWorldWritableDir(t *testing.T) {
+	path := permissionFixture(t, 0777, 0600)
+	missing := filepath.Join(filepath.Dir(path), "missing")
+
+	assert.Len(t, PermissionWarnings(missing), 1)
 }

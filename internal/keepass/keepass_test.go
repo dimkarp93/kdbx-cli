@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const sampleXML = `<?xml version="1.0" encoding="utf-8"?>
@@ -18,93 +21,87 @@ const sampleXML = `<?xml version="1.0" encoding="utf-8"?>
   </Group>
 </Group></Root></KeePassFile>`
 
-func TestParseSecrets(t *testing.T) {
+func parseSample(t *testing.T) []Entry {
+	t.Helper()
 	entries, err := ParseSecrets(sampleXML)
-	if err != nil {
-		t.Fatal(err)
+	require.NoError(t, err)
+	return entries
+}
+
+func TestLookupSecretFound(t *testing.T) {
+	entries := parseSample(t)
+	cases := map[string]string{
+		"GITHUB_TOKEN": "ghp_top",
+		"API_KEY":      "web_secret",
+		"web/API_KEY":  "web_secret",
+		"db/DUP":       "db_dup",
 	}
 
-	v, err := LookupSecret(entries, "GITHUB_TOKEN")
-	if err != nil || v != "ghp_top" {
-		t.Errorf("GITHUB_TOKEN: got %q, err %v", v, err)
-	}
-
-	v, err = LookupSecret(entries, "API_KEY")
-	if err != nil || v != "web_secret" {
-		t.Errorf("API_KEY: got %q, err %v", v, err)
-	}
-
-	v, err = LookupSecret(entries, "web/API_KEY")
-	if err != nil || v != "web_secret" {
-		t.Errorf("web/API_KEY by path: got %q, err %v", v, err)
-	}
-
-	if _, err := LookupSecret(entries, "DUP"); err == nil {
-		t.Error("expected ambiguity error for DUP")
-	}
-
-	v, err = LookupSecret(entries, "db/DUP")
-	if err != nil || v != "db_dup" {
-		t.Errorf("db/DUP by path: got %q, err %v", v, err)
-	}
-
-	if _, err := LookupSecret(entries, "MISSING"); err == nil {
-		t.Error("expected not-found error for MISSING")
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := LookupSecret(entries, name)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
 	}
 }
 
-func TestCheckEngineFile(t *testing.T) {
+func TestLookupSecretFails(t *testing.T) {
+	entries := parseSample(t)
+	cases := map[string]string{
+		"ambiguous title": "DUP",
+		"missing title":   "MISSING",
+	}
+
+	for name, title := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LookupSecret(entries, title)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func engineFixture(t *testing.T, dirMode, binMode os.FileMode) string {
+	t.Helper()
+
 	dir := t.TempDir()
-	if err := os.Chmod(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
 	bin := filepath.Join(dir, "keepassxc-cli")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkEngineFile(bin); err != nil {
-		t.Errorf("private binary should pass: %v", err)
-	}
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755))
+	require.NoError(t, os.Chmod(bin, binMode))
+	require.NoError(t, os.Chmod(dir, dirMode))
 
-	if err := os.Chmod(bin, 0775); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkEngineFile(bin); err == nil {
-		t.Error("group-writable binary should be refused")
-	}
-	if err := os.Chmod(bin, 0755); err != nil {
-		t.Fatal(err)
-	}
+	return bin
+}
 
-	if err := os.Chmod(dir, 0777); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkEngineFile(bin); err == nil {
-		t.Error("binary in a world-writable directory should be refused")
-	}
-	if err := os.Chmod(dir, 0755); err != nil {
-		t.Fatal(err)
-	}
+func TestCheckEngineFileAcceptsPrivateBinary(t *testing.T) {
+	bin := engineFixture(t, 0755, 0755)
+	assert.NoError(t, checkEngineFile(bin))
+}
 
+func TestCheckEngineFileRefusesGroupWritableBinary(t *testing.T) {
+	bin := engineFixture(t, 0755, 0775)
+	assert.Error(t, checkEngineFile(bin))
+}
+
+func TestCheckEngineFileRefusesWorldWritableDir(t *testing.T) {
+	bin := engineFixture(t, 0777, 0755)
+	assert.Error(t, checkEngineFile(bin))
+}
+
+func TestCheckEngineFileRefusesLinkInWorldWritableDir(t *testing.T) {
+	bin := engineFixture(t, 0755, 0755)
 	linkDir := t.TempDir()
-	if err := os.Chmod(linkDir, 0777); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Chmod(linkDir, 0777))
 	link := filepath.Join(linkDir, "keepassxc-cli")
-	if err := os.Symlink(bin, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkEngineFile(link); err == nil {
-		t.Error("link in a world-writable PATH directory should be refused")
-	}
+	require.NoError(t, os.Symlink(bin, link))
+
+	assert.Error(t, checkEngineFile(link))
 }
 
 func TestCheckEngineFileAcceptsSystemBinary(t *testing.T) {
 	for _, p := range []string{"/usr/bin/keepassxc-cli", "/bin/sh"} {
 		if _, err := os.Stat(p); err == nil {
-			if err := checkEngineFile(p); err != nil {
-				t.Errorf("%s: %v", p, err)
-			}
+			assert.NoError(t, checkEngineFile(p))
 			return
 		}
 	}

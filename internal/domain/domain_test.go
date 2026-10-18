@@ -1,12 +1,12 @@
 package domain
 
 import (
-	"os"
+	"errors"
 	"path/filepath"
-	"reflect"
-	"sort"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 )
@@ -18,122 +18,102 @@ func TestResolveMerge(t *testing.T) {
 	}}
 
 	r := Resolve(cfg, "install", Overrides{})
-	if r.KeyStore != "~/store.kdbx" {
-		t.Errorf("keyStore: got %q", r.KeyStore)
-	}
-	want := map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "SHARED_ENV": "OVERRIDE", "SHARED_COPY": "SHARED", "NPM_TOKEN": "NPM_TOKEN"}
-	if !reflect.DeepEqual(r.Secrets, want) {
-		t.Errorf("secrets: got %v, want %v", r.Secrets, want)
-	}
+
+	t.Run("key store inherited from default", func(t *testing.T) {
+		assert.Equal(t, "~/store.kdbx", r.KeyStore)
+	})
+	t.Run("secrets merged per entry", func(t *testing.T) {
+		want := map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "SHARED_ENV": "OVERRIDE", "SHARED_COPY": "SHARED", "NPM_TOKEN": "NPM_TOKEN"}
+		assert.Equal(t, want, r.Secrets)
+	})
 }
 
 func TestResolveFlagsOverride(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/from-cfg", Secrets: map[string]string{"E1": "A"}},
 	}}
+
 	r := Resolve(cfg, "unknown-tool", Overrides{KeyStore: "/from-flag", Secrets: map[string]string{"E1": "A2", "E2": "B"}})
-	if r.KeyStore != "/from-flag" {
-		t.Errorf("keyStore: got %q", r.KeyStore)
-	}
-	want := map[string]string{"E1": "A2", "E2": "B"}
-	if !reflect.DeepEqual(r.Secrets, want) {
-		t.Errorf("secrets: got %v, want %v", r.Secrets, want)
-	}
+
+	t.Run("key store", func(t *testing.T) {
+		assert.Equal(t, "/from-flag", r.KeyStore)
+	})
+	t.Run("secrets", func(t *testing.T) {
+		assert.Equal(t, map[string]string{"E1": "A2", "E2": "B"}, r.Secrets)
+	})
 }
 
-func TestMappingsRoundTrip(t *testing.T) {
-	m := map[string]string{"2": "B", "1": "A", "3": "C", "4": "A"}
-	pairs := MappingsFromMap(m)
-	if pairs[0] != (Mapping{Name: "A", Env: "1"}) || pairs[1] != (Mapping{Name: "A", Env: "4"}) || pairs[2].Name != "B" || pairs[3].Name != "C" {
-		t.Errorf("not sorted by name: %v", pairs)
-	}
-	if !reflect.DeepEqual(MappingsToMap(pairs), m) {
-		t.Errorf("roundtrip mismatch: %v", MappingsToMap(pairs))
-	}
-}
-
-func TestAggregateStores(t *testing.T) {
-	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: "/a.kdbx", Secrets: map[string]string{"GH": "GITHUB_TOKEN", "GH_COPY": "GITHUB_TOKEN"}},
-		"install": {Secrets: map[string]string{"NPM": "NPM_TOKEN"}},
-		"deploy":  {KeyStore: "/b.kdbx", Secrets: map[string]string{"AWS": "AWS_KEY"}},
-	}}
-	got := AggregateStores(cfg)
-
-	wantA := []string{"GITHUB_TOKEN", "NPM_TOKEN"}
-	if !reflect.DeepEqual(got["/a.kdbx"], wantA) {
-		t.Errorf("/a.kdbx: got %v, want %v", got["/a.kdbx"], wantA)
-	}
-	wantB := []string{"AWS_KEY", "GITHUB_TOKEN"}
-	if !reflect.DeepEqual(got["/b.kdbx"], wantB) {
-		t.Errorf("/b.kdbx: got %v, want %v", got["/b.kdbx"], wantB)
-	}
-}
-
-func TestBuildStoreViews(t *testing.T) {
-	dir := t.TempDir()
-	existing := filepath.Join(dir, "store.kdbx")
-	if err := os.WriteFile(existing, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	missing := filepath.Join(dir, "absent.kdbx")
-
-	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {KeyStore: existing, Secrets: map[string]string{"GH": "GITHUB_TOKEN"}},
-		"deploy":  {KeyStore: missing, Secrets: map[string]string{"AWS": "AWS_KEY"}},
-	}}
-	views := BuildStoreViews(cfg)
-	if len(views) != 2 {
-		t.Fatalf("want 2 views, got %d: %+v", len(views), views)
-	}
-	byPath := map[string]StoreView{}
-	for _, v := range views {
-		byPath[v.Path] = v
-	}
-	if !byPath[existing].Exists {
-		t.Errorf("existing store should be marked exists")
-	}
-	if byPath[missing].Exists {
-		t.Errorf("missing store should be marked not exists")
-	}
-	if len(byPath[missing].Mappings) != 2 {
-		t.Errorf("deploy store mappings: %+v", byPath[missing].Mappings)
-	}
-}
-
-func TestResolveDeliveryModes(t *testing.T) {
-	cfg := config.Config{Sections: map[string]config.Section{
+func deliveryConfig() config.Config {
+	return config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/s", Stdin: []string{"D1"}, Files: []string{"F1"}, Templates: []config.Template{{Name: "T1", Path: "/t1"}}, Askpass: "A1"},
 		"docker":  {Stdin: []string{"D2", "D3"}},
 	}}
+}
 
-	r := Resolve(cfg, "docker", Overrides{})
-	if !reflect.DeepEqual(r.Stdin, []string{"D2", "D3"}) {
-		t.Errorf("stdin should be replaced, not merged: got %v", r.Stdin)
-	}
-	if !reflect.DeepEqual(r.Files, []string{"F1"}) {
-		t.Errorf("files: got %v", r.Files)
-	}
-	if !reflect.DeepEqual(r.Templates, []config.Template{{Name: "T1", Path: "/t1"}}) {
-		t.Errorf("templates: got %v", r.Templates)
-	}
-	if r.Askpass != "A1" {
-		t.Errorf("askpass: got %q", r.Askpass)
+func TestResolveDeliveryModesFromSections(t *testing.T) {
+	r := Resolve(deliveryConfig(), "docker", Overrides{})
+
+	t.Run("stdin replaced not merged", func(t *testing.T) {
+		assert.Equal(t, []string{"D2", "D3"}, r.Stdin)
+	})
+	t.Run("files inherited", func(t *testing.T) {
+		assert.Equal(t, []string{"F1"}, r.Files)
+	})
+	t.Run("templates inherited", func(t *testing.T) {
+		assert.Equal(t, []config.Template{{Name: "T1", Path: "/t1"}}, r.Templates)
+	})
+	t.Run("askpass inherited", func(t *testing.T) {
+		assert.Equal(t, "A1", r.Askpass)
+	})
+}
+
+func TestResolveDeliveryModesFromFlags(t *testing.T) {
+	flags := Overrides{Stdin: []string{"D4"}, StdinKeepOpen: true, Templates: []config.Template{{Name: "T2", Path: "/t2"}}, Askpass: "A2"}
+
+	r := Resolve(deliveryConfig(), "docker", flags)
+
+	t.Run("stdin", func(t *testing.T) {
+		assert.Equal(t, []string{"D4"}, r.Stdin)
+	})
+	t.Run("stdin keep open", func(t *testing.T) {
+		assert.True(t, r.StdinKeepOpen)
+	})
+	t.Run("templates", func(t *testing.T) {
+		assert.Equal(t, []config.Template{{Name: "T2", Path: "/t2"}}, r.Templates)
+	})
+	t.Run("askpass", func(t *testing.T) {
+		assert.Equal(t, "A2", r.Askpass)
+	})
+}
+
+func TestResolveAskpassReads(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {AskpassReads: 2},
+		"restic":  {AskpassReads: 4},
+	}}
+
+	cases := []struct {
+		name  string
+		tool  string
+		flags Overrides
+		want  int
+	}{
+		{"default section", "git", Overrides{}, 2},
+		{"tool section", "restic", Overrides{}, 4},
+		{"flag", "restic", Overrides{AskpassReads: 7}, 7},
 	}
 
-	r = Resolve(cfg, "docker", Overrides{Stdin: []string{"D4"}, StdinKeepOpen: true, Templates: []config.Template{{Name: "T2", Path: "/t2"}}, Askpass: "A2"})
-	if !reflect.DeepEqual(r.Stdin, []string{"D4"}) {
-		t.Errorf("stdin override: got %v", r.Stdin)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, Resolve(cfg, c.tool, c.flags).AskpassReads)
+		})
 	}
-	if !r.StdinKeepOpen {
-		t.Error("stdinKeepOpen override was lost")
-	}
-	if !reflect.DeepEqual(r.Templates, []config.Template{{Name: "T2", Path: "/t2"}}) {
-		t.Errorf("templates override: got %v", r.Templates)
-	}
-	if r.Askpass != "A2" {
-		t.Errorf("askpass override: got %q", r.Askpass)
-	}
+}
+
+func TestMappingsFromMapSortsByName(t *testing.T) {
+	got := MappingsFromMap(map[string]string{"2": "B", "1": "A", "3": "C", "4": "A"})
+	want := []Mapping{{Name: "A", Env: "1"}, {Name: "A", Env: "4"}, {Name: "B", Env: "2"}, {Name: "C", Env: "3"}}
+	assert.Equal(t, want, got)
 }
 
 func TestAllTitlesDeduplicates(t *testing.T) {
@@ -143,19 +123,29 @@ func TestAllTitlesDeduplicates(t *testing.T) {
 		Files:   []string{"S", "F"},
 		Askpass: "F",
 	}
-	got := append([]string{}, r.AllTitles()...)
-	sort.Strings(got)
-	if !reflect.DeepEqual(got, []string{"F", "S", "T"}) {
-		t.Errorf("got %v", got)
-	}
+
+	assert.ElementsMatch(t, []string{"F", "S", "T"}, r.AllTitles())
+}
+
+func TestAggregateStores(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: "/a.kdbx", Secrets: map[string]string{"GH": "GITHUB_TOKEN", "GH_COPY": "GITHUB_TOKEN"}},
+		"install": {Secrets: map[string]string{"NPM": "NPM_TOKEN"}},
+		"deploy":  {KeyStore: "/b.kdbx", Secrets: map[string]string{"AWS": "AWS_KEY"}},
+	}}
+
+	got := AggregateStores(cfg)
+
+	t.Run("default store collects inheriting sections", func(t *testing.T) {
+		assert.Equal(t, []string{"GITHUB_TOKEN", "NPM_TOKEN"}, got["/a.kdbx"])
+	})
+	t.Run("own store includes default secrets", func(t *testing.T) {
+		assert.Equal(t, []string{"AWS_KEY", "GITHUB_TOKEN"}, got["/b.kdbx"])
+	})
 }
 
 func TestAggregateStoresCoversAllChannels(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "settings.json.tmpl")
-	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{T}}"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
+	tmplPath := writeTemplate(t, t.TempDir(), "settings.json.tmpl", `{"password":"{{T}}"}`)
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/s"},
 		"docker":  {Stdin: []string{"D"}},
@@ -163,109 +153,118 @@ func TestAggregateStoresCoversAllChannels(t *testing.T) {
 		"admin":   {Templates: []config.Template{{Name: "cfg", Path: tmplPath}}},
 		"ssh":     {Askpass: "A"},
 	}}
-	got := AggregateStores(cfg)["/s"]
-	if !reflect.DeepEqual(got, []string{"A", "D", "F", "T"}) {
-		t.Errorf("got %v", got)
-	}
+
+	assert.Equal(t, []string{"A", "D", "F", "T"}, AggregateStores(cfg)["/s"])
 }
 
 func TestAggregateStoreMappingsChannelTemplate(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "settings.json.tmpl")
-	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{AdminPw}}"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
+	tmplPath := writeTemplate(t, t.TempDir(), "settings.json.tmpl", `{"password":"{{AdminPw}}"}`)
 	cfg := config.Config{Sections: map[string]config.Section{
 		"admin": {KeyStore: "/s", Templates: []config.Template{{Name: "cfg", Path: tmplPath}}},
 	}}
-	mappings := AggregateStoreMappings(cfg)["/s"]
-	if len(mappings) != 1 || mappings[0].Name != "AdminPw" || mappings[0].Env != ChannelTemplate {
-		t.Errorf("got %+v", mappings)
-	}
+
+	assert.Equal(t, []Mapping{{Name: "AdminPw", Env: ChannelTemplate}}, AggregateStoreMappings(cfg)["/s"])
 }
 
 func TestAggregateStoreMappingsMultipleEnvPerSecret(t *testing.T) {
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/s", Secrets: map[string]string{"A_ENV": "T", "B_ENV": "T"}, Stdin: []string{"T", "U"}},
 	}}
-	got := AggregateStoreMappings(cfg)["/s"]
+
 	want := []Mapping{{Name: "T", Env: "A_ENV"}, {Name: "T", Env: "B_ENV"}, {Name: "U", Env: ChannelStdin}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
+	assert.Equal(t, want, AggregateStoreMappings(cfg)["/s"])
 }
 
-func TestValidateEnvNames(t *testing.T) {
-	if err := ValidateEnvNames(map[string]string{"GOOD_1": "a", "_ok": "b"}); err != nil {
-		t.Errorf("unexpected error: %v", err)
+func TestBuildStoreViewsMarksExistence(t *testing.T) {
+	dir := t.TempDir()
+	existing := writeTemplate(t, dir, "store.kdbx", "")
+	missing := filepath.Join(dir, "absent.kdbx")
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: existing, Secrets: map[string]string{"GH": "GITHUB_TOKEN"}},
+		"deploy":  {KeyStore: missing, Secrets: map[string]string{"AWS": "AWS_KEY"}},
+	}}
+
+	want := []StoreView{
+		{Path: missing, Exists: false, Mappings: []Mapping{{Name: "AWS_KEY", Env: "AWS"}, {Name: "GITHUB_TOKEN", Env: "GH"}}},
+		{Path: existing, Exists: true, Mappings: []Mapping{{Name: "GITHUB_TOKEN", Env: "GH"}}},
 	}
+	assert.Equal(t, want, BuildStoreViews(cfg))
+}
+
+func TestValidateEnvNamesAcceptsValid(t *testing.T) {
+	assert.NoError(t, ValidateEnvNames(map[string]string{"GOOD_1": "a", "_ok": "b"}))
+}
+
+func TestValidateEnvNamesRejectsInvalid(t *testing.T) {
 	err := ValidateEnvNames(map[string]string{"1BAD": "a", "A=B": "b", "": "c", "OK": "d"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
+
+	t.Run("fails", func(t *testing.T) {
+		require.Error(t, err)
+	})
 	for _, name := range []string{`"1BAD"`, `"A=B"`, `""`} {
-		if !strings.Contains(err.Error(), name) {
-			t.Errorf("error %q does not mention %s", err, name)
-		}
+		t.Run("names "+name, func(t *testing.T) {
+			assert.ErrorContains(t, err, name)
+		})
 	}
-	if strings.Contains(err.Error(), `"OK"`) {
-		t.Errorf("error %q mentions valid name", err)
-	}
+	t.Run("omits valid name", func(t *testing.T) {
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), `"OK"`)
+	})
 }
 
-func TestReadNewPassword(t *testing.T) {
-	answers := func(vals ...string) func(string) (string, error) {
-		return func(string) (string, error) {
-			v := vals[0]
-			vals = vals[1:]
-			return v, nil
-		}
+type scriptedAnswers struct {
+	answers []string
+}
+
+func (s *scriptedAnswers) read(string) (string, error) {
+	if len(s.answers) == 0 {
+		return "", errors.New("no more answers")
 	}
-	if pw, err := readNewPassword("/k.kdbx", answers("pw", "pw")); err != nil || pw != "pw" {
-		t.Errorf("matching: pw=%q err=%v", pw, err)
-	}
-	if _, err := readNewPassword("/k.kdbx", answers("pw", "typo")); err == nil {
-		t.Error("mismatch should fail")
-	}
-	if _, err := readNewPassword("/k.kdbx", answers("")); err == nil {
-		t.Error("empty password should fail")
-	}
+
+	answer := s.answers[0]
+	s.answers = s.answers[1:]
+	return answer, nil
+}
+
+func TestReadNewPasswordMatching(t *testing.T) {
+	answers := &scriptedAnswers{answers: []string{"pw", "pw"}}
+
+	pw, err := readNewPassword("/k.kdbx", answers.read)
+
+	require.NoError(t, err)
+	assert.Equal(t, "pw", pw)
+}
+
+func TestReadNewPasswordMismatch(t *testing.T) {
+	answers := &scriptedAnswers{answers: []string{"pw", "typo"}}
+
+	_, err := readNewPassword("/k.kdbx", answers.read)
+	assert.Error(t, err)
+}
+
+func TestReadNewPasswordEmpty(t *testing.T) {
+	answers := &scriptedAnswers{answers: []string{""}}
+
+	_, err := readNewPassword("/k.kdbx", answers.read)
+	assert.Error(t, err)
 }
 
 func TestConfiguredTitles(t *testing.T) {
-	dir := t.TempDir()
-	tmpl := filepath.Join(dir, "conf.tmpl")
-	if err := os.WriteFile(tmpl, []byte("token={{TMPL}}"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	tmpl := writeTemplate(t, t.TempDir(), "conf.tmpl", "token={{TMPL}}")
 	cfg := config.Config{Sections: map[string]config.Section{
 		"default": {Secrets: map[string]string{"A": "DEF"}},
 		"tool":    {Stdin: []string{"IN"}, Askpass: "ASK", Templates: []config.Template{{Name: "c", Path: tmpl}}},
 		"other":   {Secrets: map[string]string{"B": "OTHER"}},
 	}}
-	got := ConfiguredTitles(cfg, "tool")
-	for _, name := range []string{"DEF", "IN", "ASK", "TMPL"} {
-		if !got[name] {
-			t.Errorf("%s should be granted: %v", name, got)
-		}
-	}
-	if got["OTHER"] {
-		t.Error("titles of another section must not be granted")
-	}
-}
 
-func TestResolveAskpassReads(t *testing.T) {
-	cfg := config.Config{Sections: map[string]config.Section{
-		"default": {AskpassReads: 2},
-		"restic":  {AskpassReads: 4},
-	}}
-	if r := Resolve(cfg, "git", Overrides{}); r.AskpassReads != 2 {
-		t.Errorf("default: %d", r.AskpassReads)
+	got := ConfiguredTitles(cfg, "tool")
+
+	for _, name := range []string{"DEF", "IN", "ASK", "TMPL"} {
+		t.Run("grants "+name, func(t *testing.T) {
+			assert.True(t, got[name])
+		})
 	}
-	if r := Resolve(cfg, "restic", Overrides{}); r.AskpassReads != 4 {
-		t.Errorf("tool section: %d", r.AskpassReads)
-	}
-	if r := Resolve(cfg, "restic", Overrides{AskpassReads: 7}); r.AskpassReads != 7 {
-		t.Errorf("flag: %d", r.AskpassReads)
-	}
+	t.Run("skips other sections", func(t *testing.T) {
+		assert.False(t, got["OTHER"])
+	})
 }

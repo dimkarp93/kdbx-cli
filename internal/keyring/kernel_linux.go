@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zalando/go-keyring"
 	"golang.org/x/sys/unix"
 )
 
@@ -19,10 +20,10 @@ const (
 
 type kernelBackend struct{}
 
-func newBackend() backend { return kernelBackend{} }
+func newBackend(keyring.Keyring) backend { return kernelBackend{} }
 
-func dropLegacy(keyStore string) {
-	_ = keyringDelete(keyringService, keyStore)
+func dropLegacy(legacy keyring.Keyring, keyStore string) {
+	_ = legacy.Delete(keyringService, keyStore)
 }
 
 func searchKey(key string) (int, error) {
@@ -170,6 +171,6 @@ func (kernelBackend) expiresIn(key string) (time.Duration, bool) {
 	return 0, false
 }
 
-func dropAllLegacy() {
-	_ = keyringDeleteAll(keyringService)
+func dropAllLegacy(legacy keyring.Keyring) {
+	_ = legacy.DeleteAll(keyringService)
 }

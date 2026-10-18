@@ -1,10 +1,11 @@
 package cmd
 
 import (
-	"os"
 	"path/filepath"
-	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/domain"
@@ -12,55 +13,47 @@ import (
 
 func TestLoadRunConfigMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent")
+
 	gotPath, cfg, err := loadRunConfig(path)
-	if err != nil {
-		t.Fatalf("missing config must not fail: %v", err)
-	}
-	if gotPath != path || len(cfg.Sections) != 0 {
-		t.Errorf("path=%q cfg=%+v", gotPath, cfg)
-	}
+
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("returns requested path", func(t *testing.T) {
+		assert.Equal(t, path, gotPath)
+	})
+	t.Run("empty config", func(t *testing.T) {
+		assert.Empty(t, cfg.Sections)
+	})
 }
 
 func TestLoadRunConfigInvalidFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bad")
-	if err := os.WriteFile(path, []byte("{not json"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := loadRunConfig(path); err == nil {
-		t.Error("invalid config must fail")
-	}
+	path := writeTestFile(t, filepath.Join(t.TempDir(), "bad"), "{not json")
+	_, _, err := loadRunConfig(path)
+	assert.Error(t, err)
 }
 
 func TestRequestedTitlesMergesChannels(t *testing.T) {
-	dir := t.TempDir()
-	tmpl := filepath.Join(dir, "t.txt")
-	if err := os.WriteFile(tmpl, []byte("{{C}} and {{A}}"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	tmpl := writeTestFile(t, filepath.Join(t.TempDir(), "t.txt"), "{{C}} and {{A}}")
 	res := domain.Resolved{
 		Secrets:   map[string]string{"X": "A"},
 		Stdin:     []string{"B"},
 		Templates: []config.Template{{Name: "t", Path: tmpl}},
 	}
+
 	got, err := requestedTitles(res)
-	if err != nil {
-		t.Fatal(err)
-	}
-	slices.Sort(got)
-	if !slices.Equal(got, []string{"A", "B", "C"}) {
-		t.Errorf("titles: %v", got)
-	}
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"A", "B", "C"}, got)
 }
 
 func TestRequestedTitlesTemplateError(t *testing.T) {
 	res := domain.Resolved{Templates: []config.Template{{Name: "t", Path: filepath.Join(t.TempDir(), "absent")}}}
-	if _, err := requestedTitles(res); err == nil {
-		t.Error("unreadable template must fail")
-	}
+
+	_, err := requestedTitles(res)
+	assert.Error(t, err)
 }
 
 func TestCmdLoadRejectsDryRun(t *testing.T) {
-	if code := cmdLoad(runFlags{dryRun: true}); code != 2 {
-		t.Errorf("exit code: %d", code)
-	}
+	assert.Equal(t, 2, cmdLoad(runFlags{dryRun: true}))
 }
