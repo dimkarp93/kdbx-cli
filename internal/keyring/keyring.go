@@ -18,12 +18,23 @@ const (
 	defaultCacheTTL = 10 * time.Minute
 )
 
-var (
-	keyringSet       = keyring.Set
-	keyringGet       = keyring.Get
-	keyringDelete    = keyring.Delete
-	keyringDeleteAll = keyring.DeleteAll
-)
+type systemKeyring struct{}
+
+func (systemKeyring) Set(service, user, password string) error {
+	return keyring.Set(service, user, password)
+}
+
+func (systemKeyring) Get(service, user string) (string, error) {
+	return keyring.Get(service, user)
+}
+
+func (systemKeyring) Delete(service, user string) error {
+	return keyring.Delete(service, user)
+}
+
+func (systemKeyring) DeleteAll(service string) error {
+	return keyring.DeleteAll(service)
+}
 
 type backend interface {
 	get(key string) (string, error)
@@ -33,7 +44,20 @@ type backend interface {
 	expiresIn(key string) (time.Duration, bool)
 }
 
-var store backend = newBackend()
+type storage struct {
+	backend backend
+	legacy  keyring.Keyring
+}
+
+func systemStorage() storage {
+	return storage{backend: newBackend(systemKeyring{}), legacy: systemKeyring{}}
+}
+
+func (s storage) forgetAll() (int, error) {
+	n, err := s.backend.forgetAll()
+	dropAllLegacy(s.legacy)
+	return n, err
+}
 
 const keyPrefix = keyringService + ":"
 
@@ -51,11 +75,16 @@ func storeKey(keyStore string) string {
 type Cache struct {
 	enabled bool
 	ttl     time.Duration
+	storage storage
 }
 
 func New(c *config.CacheConfig) Cache {
+	return newCache(c, systemStorage())
+}
+
+func newCache(c *config.CacheConfig, s storage) Cache {
 	if c == nil || !c.Enabled {
-		return Cache{}
+		return Cache{storage: s}
 	}
 	ttl := defaultCacheTTL
 	if c.TTL != "" {
@@ -63,7 +92,7 @@ func New(c *config.CacheConfig) Cache {
 			ttl = d
 		}
 	}
-	return Cache{enabled: true, ttl: ttl}
+	return Cache{enabled: true, ttl: ttl, storage: s}
 }
 
 func (c Cache) Enabled() bool {
@@ -74,7 +103,7 @@ func (c Cache) Get(keyStore string) (string, bool) {
 	if !c.enabled {
 		return "", false
 	}
-	raw, err := store.get(storeKey(keyStore))
+	raw, err := c.storage.backend.get(storeKey(keyStore))
 	if err != nil {
 		return "", false
 	}
@@ -93,8 +122,8 @@ func (c Cache) Remember(keyStore, password string) {
 }
 
 func (c Cache) Forget(keyStore string) {
-	_ = store.forget(storeKey(keyStore))
-	dropLegacy(keyStore)
+	_ = c.storage.backend.forget(storeKey(keyStore))
+	dropLegacy(c.storage.legacy, keyStore)
 }
 
 type CacheStatus struct {
@@ -106,7 +135,7 @@ func (c Cache) Status(keyStore string) CacheStatus {
 	if !c.enabled {
 		return CacheStatus{}
 	}
-	remaining, ok := store.expiresIn(storeKey(keyStore))
+	remaining, ok := c.storage.backend.expiresIn(storeKey(keyStore))
 	if !ok {
 		return CacheStatus{}
 	}
@@ -114,9 +143,7 @@ func (c Cache) Status(keyStore string) CacheStatus {
 }
 
 func ForgetAll() (int, error) {
-	n, err := store.forgetAll()
-	dropAllLegacy()
-	return n, err
+	return systemStorage().forgetAll()
 }
 
 type entry struct {
@@ -154,7 +181,7 @@ func (c Cache) Granted(keyStore string) []string {
 	if !c.enabled {
 		return nil
 	}
-	raw, err := store.get(storeKey(keyStore))
+	raw, err := c.storage.backend.get(storeKey(keyStore))
 	if err != nil {
 		return nil
 	}
@@ -166,7 +193,7 @@ func (c Cache) Grant(keyStore, password string, titles []string) {
 		return
 	}
 	merged := mergeTitles(c.Granted(keyStore), titles)
-	if err := store.set(storeKey(keyStore), encodeEntry(entry{Password: password, Titles: merged}), c.ttl); err != nil {
+	if err := c.storage.backend.set(storeKey(keyStore), encodeEntry(entry{Password: password, Titles: merged}), c.ttl); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: cannot cache password:", err)
 	}
 }

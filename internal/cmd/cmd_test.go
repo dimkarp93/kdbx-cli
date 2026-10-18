@@ -1,20 +1,49 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
-	"slices"
-	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 )
+
+func writeTestFile(t *testing.T, path, content string) string {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	return path
+}
+
+func captureStdout(t *testing.T, print func()) string {
+	t.Helper()
+
+	f, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	printTo(f, print)
+
+	out, err := os.ReadFile(f.Name())
+	require.NoError(t, err)
+
+	return string(out)
+}
+
+func printTo(f *os.File, print func()) {
+	orig := os.Stdout
+	os.Stdout = f
+	defer func() { os.Stdout = orig }()
+
+	print()
+}
 
 func TestSplitArgs(t *testing.T) {
 	cases := []struct {
@@ -30,133 +59,166 @@ func TestSplitArgs(t *testing.T) {
 		{"sep first", []string{"--", "tool"}, []string{}, []string{"tool"}, true},
 		{"child has flags", []string{"--", "tool", "-v", "--x"}, []string{}, []string{"tool", "-v", "--x"}, true},
 	}
+
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			left, child, sep := splitArgs(c.in)
-			if !reflect.DeepEqual(left, c.wantLeft) {
-				t.Errorf("left: got %v, want %v", left, c.wantLeft)
-			}
-			if !reflect.DeepEqual(child, c.wantChild) {
-				t.Errorf("child: got %v, want %v", child, c.wantChild)
-			}
-			if sep != c.wantSep {
-				t.Errorf("sep: got %v, want %v", sep, c.wantSep)
-			}
+			assert.Equal(t, c.wantLeft, left)
+			assert.Equal(t, c.wantChild, child)
+			assert.Equal(t, c.wantSep, sep)
 		})
 	}
 }
 
 func TestParseRunFlags(t *testing.T) {
 	f, err := parseRunFlags([]string{"--config", "/c", "--key-store=/k", "--secrets", "A:AA,B:BB", "--secrets=C:CC"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.configPath != "/c" {
-		t.Errorf("configPath: got %q", f.configPath)
-	}
-	if f.keyStore != "/k" {
-		t.Errorf("keyStore: got %q", f.keyStore)
-	}
-	want := map[string]string{"AA": "A", "BB": "B", "CC": "C"}
-	if !reflect.DeepEqual(f.secrets, want) {
-		t.Errorf("secrets: got %v, want %v", f.secrets, want)
-	}
+
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("config path", func(t *testing.T) {
+		assert.Equal(t, "/c", f.configPath)
+	})
+	t.Run("key store", func(t *testing.T) {
+		assert.Equal(t, "/k", f.keyStore)
+	})
+	t.Run("secrets merged from repeated flags", func(t *testing.T) {
+		assert.Equal(t, map[string]string{"AA": "A", "BB": "B", "CC": "C"}, f.secrets)
+	})
 }
 
 func TestParseRunFlagsDryRun(t *testing.T) {
 	f, err := parseRunFlags([]string{"--dry-run", "--key-store=/k"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !f.dryRun {
-		t.Error("dryRun should be true")
-	}
-	f2, _ := parseRunFlags([]string{"--key-store=/k"})
-	if f2.dryRun {
-		t.Error("dryRun should default to false")
-	}
+	require.NoError(t, err)
+	assert.True(t, f.dryRun)
+}
+
+func TestParseRunFlagsDryRunDefaultsToFalse(t *testing.T) {
+	f, err := parseRunFlags([]string{"--key-store=/k"})
+	require.NoError(t, err)
+	assert.False(t, f.dryRun)
 }
 
 func TestParseRunFlagsErrors(t *testing.T) {
-	cases := [][]string{
-		{"--config"},
-		{"--secrets", "noColon"},
-		{"--secrets", ":env"},
-		{"--secrets", "name:"},
-		{"--unknown"},
+	cases := map[string][]string{
+		"missing value":      {"--config"},
+		"secret no colon":    {"--secrets", "noColon"},
+		"secret empty name":  {"--secrets", ":env"},
+		"secret empty env":   {"--secrets", "name:"},
+		"unknown flag":       {"--unknown"},
+		"askpass reads zero": {"--askpass-reads=0"},
+		"askpass reads neg":  {"--askpass-reads=-1"},
+		"askpass reads text": {"--askpass-reads=x"},
 	}
-	for _, c := range cases {
-		if _, err := parseRunFlags(c); err == nil {
-			t.Errorf("expected error for %v", c)
-		}
+
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseRunFlags(args)
+			assert.Error(t, err)
+		})
 	}
 }
 
 func TestParseRunFlagsTemplate(t *testing.T) {
 	f, err := parseRunFlags([]string{"--template", "cfg:/a/settings.json", "--template=cfg2:/b/other.env"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []config.Template{{Name: "cfg", Path: "/a/settings.json"}, {Name: "cfg2", Path: "/b/other.env"}}
-	if !reflect.DeepEqual(f.templates, want) {
-		t.Errorf("templates: got %+v, want %+v", f.templates, want)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, []config.Template{{Name: "cfg", Path: "/a/settings.json"}, {Name: "cfg2", Path: "/b/other.env"}}, f.templates)
 }
 
 func TestParseTemplatesFlagErrors(t *testing.T) {
-	cases := []string{"noColon", ":path", "name:"}
-	for _, c := range cases {
-		if _, err := parseTemplatesFlag(c); err == nil {
-			t.Errorf("expected error for %q", c)
-		}
+	for _, value := range []string{"noColon", ":path", "name:"} {
+		t.Run(value, func(t *testing.T) {
+			_, err := parseTemplatesFlag(value)
+			assert.Error(t, err)
+		})
 	}
 }
 
-func TestTemplateNames(t *testing.T) {
-	got := templateNames([]config.Template{{Name: "a", Path: "/x"}, {Name: "b", Path: "/y"}})
-	if !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Errorf("got %v", got)
-	}
+func TestParseRunFlagsDeliveryModes(t *testing.T) {
+	f, err := parseRunFlags([]string{
+		"--stdin", "A,B", "--stdin=C", "--stdin-keep-open",
+		"--secret-file=F1, F2", "--secret-file", "F3",
+		"--askpass=P",
+	})
+
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("stdin accumulates", func(t *testing.T) {
+		assert.Equal(t, []string{"A", "B", "C"}, f.stdin)
+	})
+	t.Run("stdin keep open", func(t *testing.T) {
+		assert.True(t, f.stdinKeepOpen)
+	})
+	t.Run("files trimmed and accumulated", func(t *testing.T) {
+		assert.Equal(t, []string{"F1", "F2", "F3"}, f.files)
+	})
+	t.Run("askpass", func(t *testing.T) {
+		assert.Equal(t, "P", f.askpass)
+	})
+}
+
+func TestParseRunFlagsAskpassReads(t *testing.T) {
+	f, err := parseRunFlags([]string{"--askpass=PW", "--askpass-reads=3"})
+
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("parsed", func(t *testing.T) {
+		assert.Equal(t, 3, f.askpassReads)
+	})
+	t.Run("passed to overrides", func(t *testing.T) {
+		assert.Equal(t, 3, f.overrides().AskpassReads)
+	})
+}
+
+func TestParseRunFlagsAskpassReadsSeparateValue(t *testing.T) {
+	f, err := parseRunFlags([]string{"--askpass-reads", "2"})
+	require.NoError(t, err)
+	assert.Equal(t, 2, f.askpassReads)
 }
 
 func TestMergeSecretsFlag(t *testing.T) {
 	m := map[string]string{}
-	if err := mergeSecretsFlag(m, "Group/Sub/Title:ENV, X:Y , Group/Sub/Title:ENV2"); err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{"ENV": "Group/Sub/Title", "ENV2": "Group/Sub/Title", "Y": "X"}
-	if !reflect.DeepEqual(m, want) {
-		t.Errorf("got %v, want %v", m, want)
-	}
+
+	err := mergeSecretsFlag(m, "Group/Sub/Title:ENV, X:Y , Group/Sub/Title:ENV2")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"ENV": "Group/Sub/Title", "ENV2": "Group/Sub/Title", "Y": "X"}, m)
 }
 
 func TestDescribeSection(t *testing.T) {
-	cfg := config.Config{Sections: map[string]config.Section{"default": {}, "install": {}}}
-	cases := map[string]string{
-		"install": `"install" (merged over "default")`,
-		"curl":    `"default" (no section for "curl")`,
-		"default": `"default"`,
+	withDefault := config.Config{Sections: map[string]config.Section{"default": {}, "install": {}}}
+
+	cases := []struct {
+		name string
+		cfg  config.Config
+		tool string
+		want string
+	}{
+		{"tool over default", withDefault, "install", `"install" (merged over "default")`},
+		{"no tool section", withDefault, "curl", `"default" (no section for "curl")`},
+		{"default itself", withDefault, "default", `"default"`},
+		{"empty config", config.Config{}, "x", `(no section for "x" and no "default")`},
+		{"tool section only", config.Config{Sections: map[string]config.Section{"only": {}}}, "only", `"only"`},
 	}
-	for tool, want := range cases {
-		if got := describeSection(cfg, tool); got != want {
-			t.Errorf("describeSection(%q): got %q, want %q", tool, got, want)
-		}
-	}
-	if got := describeSection(config.Config{}, "x"); got != `(no section for "x" and no "default")` {
-		t.Errorf("empty config: got %q", got)
-	}
-	if got := describeSection(config.Config{Sections: map[string]config.Section{"only": {}}}, "only"); got != `"only"` {
-		t.Errorf("tool-only section: got %q", got)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, describeSection(c.cfg, c.tool))
+		})
 	}
 }
 
 func TestRenderCommand(t *testing.T) {
 	secrets := map[string]string{"GH_TOKEN": "GITHUB_TOKEN", "NPM_TOKEN": "NPM_TOKEN"}
+
 	got := renderCommand(sortedMappings(secrets), nil, []string{"install", "arg with spaces", "plain"})
-	want := "GH_TOKEN=<secret from GITHUB_TOKEN> NPM_TOKEN=<secret from NPM_TOKEN> install 'arg with spaces' plain"
-	if got != want {
-		t.Errorf("got %q\nwant %q", got, want)
-	}
+	assert.Equal(t, "GH_TOKEN=<secret from GITHUB_TOKEN> NPM_TOKEN=<secret from NPM_TOKEN> install 'arg with spaces' plain", got)
+}
+
+func TestRenderCommandWithFiles(t *testing.T) {
+	got := renderCommand(nil, []string{"repo"}, []string{"restic", "--password-file", "{{repo}}"})
+	assert.Equal(t, "restic --password-file '<file with repo>'", got)
 }
 
 func TestShellQuote(t *testing.T) {
@@ -168,111 +230,47 @@ func TestShellQuote(t *testing.T) {
 		"it's":          `'it'\''s'`,
 		"https://x?a=1": "'https://x?a=1'",
 	}
+
 	for in, want := range cases {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q): got %q, want %q", in, got, want)
-		}
+		t.Run(in, func(t *testing.T) {
+			assert.Equal(t, want, shellQuote(in))
+		})
 	}
 }
 
-func TestTitlesOf(t *testing.T) {
-	got := titlesOf([]domain.Mapping{{Name: "B", Env: "2"}, {Name: "A", Env: "1"}})
-	if !reflect.DeepEqual(got, []string{"A", "B"}) {
-		t.Errorf("got %v", got)
-	}
+func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
+	tmplPath := writeTestFile(t, filepath.Join(t.TempDir(), "settings.json"), `{"password":"{{AdminPw}}"}`)
+	res := domain.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
+
+	out := captureStdout(t, func() {
+		printPlan("/cfg", "admin", config.Config{}, res, runFlags{}, []string{"admin", "{{cfg}}"})
+	})
+
+	t.Run("templates block", func(t *testing.T) {
+		assert.Contains(t, out, "Templates (placeholder ← rendered file):")
+	})
+	t.Run("template titles", func(t *testing.T) {
+		assert.Contains(t, out, "(uses: AdminPw)")
+	})
+	t.Run("command masks template file", func(t *testing.T) {
+		assert.Contains(t, out, "<file with cfg>")
+	})
 }
 
 func TestRefreshPathSuggestions(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "store.kdbx"), nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "sub"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeTestFile(t, filepath.Join(dir, "store.kdbx"), "")
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0755))
 
 	ti := textinput.New()
 	ti.SetValue(dir + string(os.PathSeparator))
+
 	refreshPathSuggestions(&ti)
-	got := ti.AvailableSuggestions()
 
-	wantFile := filepath.Join(dir, "store.kdbx")
-	wantDir := filepath.Join(dir, "sub") + string(os.PathSeparator)
-	if !slices.Contains(got, wantFile) {
-		t.Errorf("suggestions missing file %q: %v", wantFile, got)
-	}
-	if !slices.Contains(got, wantDir) {
-		t.Errorf("suggestions missing dir %q: %v", wantDir, got)
-	}
-}
-
-func TestCommitEditAddSortAndDuplicate(t *testing.T) {
-	m := newConfigTUI("", []domain.Mapping{{Name: "B", Env: "2"}}, nil)
-	m.mode = modeEdit
-	m.editIndex = -1
-	m.name.SetValue("A")
-	m.env.SetValue("1")
-	res, _ := m.commitEdit()
-	m = res.(configTUI)
-	if len(m.pairs) != 2 || m.pairs[0].Name != "A" {
-		t.Fatalf("add/sort failed: %v", m.pairs)
-	}
-	if m.cursor != 0 {
-		t.Errorf("cursor should point at the committed item, got %d", m.cursor)
-	}
-
-	m.mode = modeEdit
-	m.editIndex = -1
-	m.name.SetValue("C")
-	m.env.SetValue("2")
-	res, _ = m.commitEdit()
-	dup := res.(configTUI)
-	if dup.err == "" || dup.mode != modeEdit {
-		t.Errorf("expected duplicate env error and stay in edit, err=%q mode=%v", dup.err, dup.mode)
-	}
-}
-
-func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
-	m := newConfigTUI("", []domain.Mapping{{Name: "B", Env: "2"}}, nil)
-	m.mode = modeEdit
-	m.editIndex = -1
-	m.name.SetValue("B")
-	m.env.SetValue("9")
-	res, _ := m.commitEdit()
-	got := res.(configTUI)
-	if got.err != "" || len(got.pairs) != 2 {
-		t.Fatalf("same secret with another env should be allowed, err=%q pairs=%v", got.err, got.pairs)
-	}
-	if got.pairs[got.cursor] != (domain.Mapping{Name: "B", Env: "9"}) {
-		t.Errorf("cursor should point at the new pair, got %v", got.pairs[got.cursor])
-	}
-}
-
-func TestCommitEditRequiresBothFields(t *testing.T) {
-	m := newConfigTUI("", nil, nil)
-	m.mode = modeEdit
-	m.editIndex = -1
-	m.name.SetValue("")
-	m.env.SetValue("X")
-	res, _ := m.commitEdit()
-	got := res.(configTUI)
-	if got.err == "" || len(got.pairs) != 0 {
-		t.Errorf("empty name should error and add nothing, err=%q pairs=%v", got.err, got.pairs)
-	}
-}
-
-func TestListDeleteAdjustsCursor(t *testing.T) {
-	m := newConfigTUI("", []domain.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, nil)
-	m.mode = modeList
-	m.cursor = 1
-	res, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	m = res.(configTUI)
-	if len(m.pairs) != 1 || m.pairs[0].Name != "A" {
-		t.Fatalf("delete failed: %v", m.pairs)
-	}
-	if m.cursor != 0 {
-		t.Errorf("cursor not clamped after delete: %d", m.cursor)
-	}
+	assert.Subset(t, ti.AvailableSuggestions(), []string{
+		filepath.Join(dir, "store.kdbx"),
+		filepath.Join(dir, "sub") + string(os.PathSeparator),
+	})
 }
 
 func TestDeleteLastPathSegment(t *testing.T) {
@@ -284,205 +282,239 @@ func TestDeleteLastPathSegment(t *testing.T) {
 		"relative/path":               "relative/",
 		"single":                      "",
 	}
+
 	for in, want := range cases {
-		ti := textinput.New()
-		ti.SetValue(in)
-		deleteLastPathSegment(&ti)
-		if got := ti.Value(); got != want {
-			t.Errorf("deleteLastPathSegment(%q): got %q, want %q", in, got, want)
-		}
+		t.Run(in, func(t *testing.T) {
+			ti := textinput.New()
+			ti.SetValue(in)
+			deleteLastPathSegment(&ti)
+			assert.Equal(t, want, ti.Value())
+		})
 	}
 }
 
-func TestShowTUINavigationAndOpen(t *testing.T) {
+func commitNewPair(pairs []domain.Mapping, name, env string) configTUI {
+	m := newConfigTUI("", pairs, nil)
+	m.mode = modeEdit
+	m.editIndex = -1
+	m.name.SetValue(name)
+	m.env.SetValue(env)
+
+	res, _ := m.commitEdit()
+	return res.(configTUI)
+}
+
+func TestCommitEditAddsSorted(t *testing.T) {
+	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "A", "1")
+
+	t.Run("sorted by name", func(t *testing.T) {
+		assert.Equal(t, []domain.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, m.pairs)
+	})
+	t.Run("cursor on committed pair", func(t *testing.T) {
+		assert.Equal(t, 0, m.cursor)
+	})
+}
+
+func TestCommitEditRejectsDuplicateEnv(t *testing.T) {
+	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "C", "2")
+
+	t.Run("reports error", func(t *testing.T) {
+		assert.NotEmpty(t, m.err)
+	})
+	t.Run("stays in edit mode", func(t *testing.T) {
+		assert.Equal(t, modeEdit, m.mode)
+	})
+	t.Run("keeps pairs", func(t *testing.T) {
+		assert.Equal(t, []domain.Mapping{{Name: "B", Env: "2"}}, m.pairs)
+	})
+}
+
+func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
+	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "B", "9")
+
+	t.Run("no error", func(t *testing.T) {
+		assert.Empty(t, m.err)
+	})
+	t.Run("both pairs kept", func(t *testing.T) {
+		assert.Len(t, m.pairs, 2)
+	})
+	t.Run("cursor on new pair", func(t *testing.T) {
+		require.Less(t, m.cursor, len(m.pairs))
+		assert.Equal(t, domain.Mapping{Name: "B", Env: "9"}, m.pairs[m.cursor])
+	})
+}
+
+func TestCommitEditRequiresBothFields(t *testing.T) {
+	m := commitNewPair(nil, "", "X")
+
+	t.Run("reports error", func(t *testing.T) {
+		assert.NotEmpty(t, m.err)
+	})
+	t.Run("adds nothing", func(t *testing.T) {
+		assert.Empty(t, m.pairs)
+	})
+}
+
+func TestListDeleteAdjustsCursor(t *testing.T) {
+	m := newConfigTUI("", []domain.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, nil)
+	m.mode = modeList
+	m.cursor = 1
+
+	res, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = res.(configTUI)
+
+	t.Run("removes selected pair", func(t *testing.T) {
+		assert.Equal(t, []domain.Mapping{{Name: "A", Env: "1"}}, m.pairs)
+	})
+	t.Run("clamps cursor", func(t *testing.T) {
+		assert.Equal(t, 0, m.cursor)
+	})
+}
+
+type recordingLauncher struct {
+	opened string
+	err    error
+}
+
+func (l *recordingLauncher) launch(path string) error {
+	l.opened = path
+	return l.err
+}
+
+func newTwoStoreShowTUI(launch launchFunc) showTUI {
 	views := []domain.StoreView{
 		{Path: "/a.kdbx", Exists: true},
 		{Path: "/b.kdbx", Exists: false},
 	}
-	m := newShowTUI("/cfg", nil, views, keyring.New(nil))
-
-	down := tea.KeyMsg{Type: tea.KeyDown}
-	res, _ := m.Update(down)
-	m = res.(showTUI)
-	if m.cursor != 1 {
-		t.Fatalf("cursor after down: %d", m.cursor)
-	}
-
-	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = res.(showTUI)
-	if !strings.Contains(m.status, "does not exist") {
-		t.Errorf("opening missing file should report it, status=%q", m.status)
-	}
-
-	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	m = res.(showTUI)
-	if m.cursor != 0 {
-		t.Fatalf("cursor after up: %d", m.cursor)
-	}
-
-	called := ""
-	orig := openInKeePassXC
-	openInKeePassXC = func(p string) error { called = p; return nil }
-	defer func() { openInKeePassXC = orig }()
-
-	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = res.(showTUI)
-	if called != "/a.kdbx" {
-		t.Errorf("expected open of /a.kdbx, got %q", called)
-	}
-	if !strings.Contains(m.status, "opened in KeePassXC") {
-		t.Errorf("status after open: %q", m.status)
-	}
+	return newShowTUI("/cfg", nil, views, keyring.New(nil), launch)
 }
 
-func TestParseRunFlagsDeliveryModes(t *testing.T) {
-	f, err := parseRunFlags([]string{
-		"--stdin", "A,B", "--stdin=C", "--stdin-keep-open",
-		"--secret-file=F1, F2", "--secret-file", "F3",
-		"--askpass=P",
+func pressKeys(m showTUI, keys ...tea.KeyType) showTUI {
+	for _, key := range keys {
+		res, _ := m.Update(tea.KeyMsg{Type: key})
+		m = res.(showTUI)
+	}
+	return m
+}
+
+func TestShowTUIDownMovesCursor(t *testing.T) {
+	m := pressKeys(newTwoStoreShowTUI(new(recordingLauncher).launch), tea.KeyDown)
+	assert.Equal(t, 1, m.cursor)
+}
+
+func TestShowTUIUpMovesCursor(t *testing.T) {
+	m := pressKeys(newTwoStoreShowTUI(new(recordingLauncher).launch), tea.KeyDown, tea.KeyUp)
+	assert.Equal(t, 0, m.cursor)
+}
+
+func TestShowTUIEnterOnMissingStore(t *testing.T) {
+	launcher := &recordingLauncher{}
+
+	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyDown, tea.KeyEnter)
+
+	t.Run("reports missing file", func(t *testing.T) {
+		assert.Contains(t, m.status, "does not exist")
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(f.stdin, []string{"A", "B", "C"}) {
-		t.Errorf("stdin: got %v", f.stdin)
-	}
-	if !f.stdinKeepOpen {
-		t.Error("stdinKeepOpen should be true")
-	}
-	if !reflect.DeepEqual(f.files, []string{"F1", "F2", "F3"}) {
-		t.Errorf("files: got %v", f.files)
-	}
-	if f.askpass != "P" {
-		t.Errorf("askpass: got %q", f.askpass)
-	}
+	t.Run("does not open", func(t *testing.T) {
+		assert.Empty(t, launcher.opened)
+	})
+}
+
+func TestShowTUIEnterOpensExistingStore(t *testing.T) {
+	launcher := &recordingLauncher{}
+
+	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyEnter)
+
+	t.Run("opens selected store", func(t *testing.T) {
+		assert.Equal(t, "/a.kdbx", launcher.opened)
+	})
+	t.Run("reports opening", func(t *testing.T) {
+		assert.Contains(t, m.status, "opened in KeePassXC")
+	})
+}
+
+func TestShowTUIEnterReportsLaunchError(t *testing.T) {
+	launcher := &recordingLauncher{err: errors.New("keepassxc GUI not found in PATH")}
+
+	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyEnter)
+
+	assert.Equal(t, "✗ keepassxc GUI not found in PATH", m.status)
 }
 
 func TestStdinPayload(t *testing.T) {
 	got, err := stdinPayload([]string{"pw", "pw"}, map[string]string{"pw": "s3cret"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "s3cret\ns3cret\n" {
-		t.Errorf("got %q", got)
-	}
-	if _, err := stdinPayload([]string{"pw"}, map[string]string{"pw": "a\nb"}); err == nil {
-		t.Error("expected an error for a secret with a newline")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "s3cret\ns3cret\n", got)
+}
+
+func TestStdinPayloadRejectsMultilineSecret(t *testing.T) {
+	_, err := stdinPayload([]string{"pw"}, map[string]string{"pw": "a\nb"})
+	assert.Error(t, err)
 }
 
 func TestSubstitutePlaceholders(t *testing.T) {
 	args := []string{"restic", "--password-file", "{{repo pw}}", "--other=x{{repo pw}}x"}
+
 	got, err := substitutePlaceholders(args, map[string]string{"repo pw": "/run/fifo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"restic", "--password-file", "/run/fifo", "--other=x/run/fifox"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-	if args[2] != "{{repo pw}}" {
-		t.Error("input args were mutated")
-	}
-	if _, err := substitutePlaceholders([]string{"restic"}, map[string]string{"pw": "/run/fifo"}); err == nil {
-		t.Error("expected an error when the placeholder is absent")
-	}
+
+	t.Run("succeeds", func(t *testing.T) {
+		require.NoError(t, err)
+	})
+	t.Run("substitutes whole and embedded placeholders", func(t *testing.T) {
+		assert.Equal(t, []string{"restic", "--password-file", "/run/fifo", "--other=x/run/fifox"}, got)
+	})
+	t.Run("does not mutate input", func(t *testing.T) {
+		assert.Equal(t, "{{repo pw}}", args[2])
+	})
+}
+
+func TestSubstitutePlaceholdersMissingPlaceholder(t *testing.T) {
+	_, err := substitutePlaceholders([]string{"restic"}, map[string]string{"pw": "/run/fifo"})
+	assert.Error(t, err)
 }
 
 func TestWithAskpass(t *testing.T) {
 	env := withAskpass([]string{"PATH=/bin", "SSH_ASKPASS=/old", "HOME=/h"}, "/tmp/askpass.sh")
-	if slices.Contains(env, "SSH_ASKPASS=/old") {
-		t.Error("the pre-existing SSH_ASKPASS was not replaced")
-	}
-	for _, want := range []string{
-		"PATH=/bin", "HOME=/h",
-		"SSH_ASKPASS=/tmp/askpass.sh", "SUDO_ASKPASS=/tmp/askpass.sh",
-		"GIT_ASKPASS=/tmp/askpass.sh", "RESTIC_PASSWORD_COMMAND=/tmp/askpass.sh",
-		"BORG_PASSCOMMAND=/tmp/askpass.sh", "SSH_ASKPASS_REQUIRE=force",
-		"GIT_TERMINAL_PROMPT=0",
-	} {
-		if !slices.Contains(env, want) {
-			t.Errorf("env missing %q: %v", want, env)
-		}
-	}
-}
 
-func TestRenderCommandWithFiles(t *testing.T) {
-	got := renderCommand(nil, []string{"repo"}, []string{"restic", "--password-file", "{{repo}}"})
-	want := "restic --password-file '<file with repo>'"
-	if got != want {
-		t.Errorf("got %q\nwant %q", got, want)
-	}
-}
-
-func TestRenderCommandWithTemplates(t *testing.T) {
-	got := renderCommand(nil, []string{"cfg"}, []string{"admin", "{{cfg}}"})
-	want := "admin '<file with cfg>'"
-	if got != want {
-		t.Errorf("got %q\nwant %q", got, want)
-	}
-}
-
-func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
-	dir := t.TempDir()
-	tmplPath := filepath.Join(dir, "settings.json")
-	if err := os.WriteFile(tmplPath, []byte(`{"password":"{{AdminPw}}"}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	res := domain.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
-	printPlan("/cfg", "admin", config.Config{}, res, runFlags{}, []string{"admin", "{{cfg}}"})
-	w.Close()
-	os.Stdout = old
-
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	out := string(buf[:n])
-
-	if !strings.Contains(out, "Templates (placeholder ← rendered file):") {
-		t.Errorf("missing templates block:\n%s", out)
-	}
-	if !strings.Contains(out, "(uses: AdminPw)") {
-		t.Errorf("missing template titles:\n%s", out)
-	}
-	if !strings.Contains(out, "<file with cfg>") {
-		t.Errorf("command line should mask the template file:\n%s", out)
-	}
+	t.Run("replaces existing askpass", func(t *testing.T) {
+		assert.NotContains(t, env, "SSH_ASKPASS=/old")
+	})
+	t.Run("keeps unrelated variables", func(t *testing.T) {
+		assert.Subset(t, env, []string{"PATH=/bin", "HOME=/h"})
+	})
+	t.Run("points helpers at script", func(t *testing.T) {
+		assert.Subset(t, env, []string{
+			"SSH_ASKPASS=/tmp/askpass.sh", "SUDO_ASKPASS=/tmp/askpass.sh",
+			"GIT_ASKPASS=/tmp/askpass.sh", "RESTIC_PASSWORD_COMMAND=/tmp/askpass.sh",
+			"BORG_PASSCOMMAND=/tmp/askpass.sh",
+		})
+	})
+	t.Run("forces askpass and disables prompts", func(t *testing.T) {
+		assert.Subset(t, env, []string{"SSH_ASKPASS_REQUIRE=force", "GIT_TERMINAL_PROMPT=0"})
+	})
 }
 
 func TestChildEnvDropsPassword(t *testing.T) {
 	got := childEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
-	want := []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("childEnv: got %v, want %v", got, want)
-	}
+	assert.Equal(t, []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}, got)
 }
 
 func TestTitlesGranted(t *testing.T) {
 	granted := map[string]bool{"A": true, "B": true}
-	if !titlesGranted([]string{"A", "B"}, granted) {
-		t.Error("subset should be granted")
-	}
-	if titlesGranted([]string{"A", "C"}, granted) {
-		t.Error("unknown title must not be granted")
-	}
-}
 
-func TestParseRunFlagsAskpassReads(t *testing.T) {
-	f, err := parseRunFlags([]string{"--askpass=PW", "--askpass-reads=3"})
-	if err != nil || f.askpassReads != 3 || f.overrides().AskpassReads != 3 {
-		t.Errorf("--askpass-reads=3: %+v %v", f, err)
+	cases := []struct {
+		name   string
+		titles []string
+		want   bool
+	}{
+		{"subset", []string{"A", "B"}, true},
+		{"empty", nil, true},
+		{"unknown title", []string{"A", "C"}, false},
 	}
-	f, err = parseRunFlags([]string{"--askpass-reads", "2"})
-	if err != nil || f.askpassReads != 2 {
-		t.Errorf("--askpass-reads 2: %+v %v", f, err)
-	}
-	for _, bad := range []string{"--askpass-reads=0", "--askpass-reads=-1", "--askpass-reads=x"} {
-		if _, err := parseRunFlags([]string{bad}); err == nil {
-			t.Errorf("%s should fail", bad)
-		}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, titlesGranted(c.titles, granted))
+		})
 	}
 }
