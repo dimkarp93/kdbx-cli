@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/store"
+	"github.com/dimkarp93/kdbx-cli/internal/tui"
 )
 
 func cmdLoad(flags runFlags) int {
@@ -31,63 +33,66 @@ func cmdLoad(flags runFlags) int {
 		return 1
 	}
 
-	res := resolve.Resolve(cfg, "", flags.overrides())
-	if res.KeyStore == "" {
-		fmt.Fprintln(os.Stderr, "no key-store configured: set it in", cfgPath, "or pass --key-store")
-		return 1
-	}
-	titles, err := requestedTitles(res)
+	keyStore, err := loadAndGrant(cfgPath, cfg, flags, cache)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if len(titles) == 0 {
-		fmt.Fprintln(os.Stderr, "nothing to load: pass secrets via flags or configure the default section")
-		return 1
-	}
 
-	keyStore := config.ExpandHome(res.KeyStore)
-	if _, err := os.Stat(keyStore); err != nil {
-		fmt.Fprintln(os.Stderr, "key-store not found:", keyStore)
-		return 1
-	}
-
-	prompt := fmt.Sprintf("Enter password for %s to load %d title(s): ", keyStore, len(titles))
-	out, pw, err := store.UnlockExport(keyStore, cache, prompt, false)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	entries, err := keepass.ParseSecrets(out)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "cannot parse key-store:", err)
-		return 1
-	}
-	var failures []string
-	for _, name := range titles {
-		if _, err := keepass.LookupSecret(entries, name); err != nil {
-			failures = append(failures, err.Error())
-		}
-	}
-	if len(failures) > 0 {
-		fmt.Fprintln(os.Stderr, "nothing loaded:")
-		for _, f := range failures {
-			fmt.Fprintln(os.Stderr, "  "+f)
-		}
-		return 1
-	}
-
-	cache.Grant(keyStore, pw, titles)
 	printLoaded(keyStore, cache)
 	return 0
 }
 
+func loadAndGrant(cfgPath string, cfg config.Config, flags runFlags, cache keyring.Cache) (string, error) {
+	keyStore, titles, err := loadTargets(cfgPath, cfg, flags)
+	if err != nil {
+		return "", err
+	}
+	return keyStore, grantTitles(keyStore, titles, cache)
+}
+
+func loadTargets(cfgPath string, cfg config.Config, flags runFlags) (string, []string, error) {
+	res := resolve.Resolve(cfg, "", flags.overrides())
+	if res.KeyStore == "" {
+		return "", nil, errNoKeyStore(cfgPath)
+	}
+
+	titles, err := requestedTitles(res)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(titles) == 0 {
+		return "", nil, errors.New("nothing to load: pass secrets via flags or configure the default section")
+	}
+
+	keyStore, err := existingKeyStore(res.KeyStore)
+	return keyStore, titles, err
+}
+
+func grantTitles(keyStore string, titles []string, cache keyring.Cache) error {
+	prompt := fmt.Sprintf("Enter password for %s to load %d title(s): ", keyStore, len(titles))
+	out, pw, err := store.UnlockExport(keyStore, cache, prompt, false)
+	if err != nil {
+		return err
+	}
+
+	entries, err := parseEntries(out)
+	if err != nil {
+		return err
+	}
+	if _, failures := lookupAll(entries, titles); len(failures) > 0 {
+		return failuresError("nothing loaded:", failures)
+	}
+
+	cache.Grant(keyStore, pw, titles)
+	return nil
+}
+
 func printLoaded(keyStore string, cache keyring.Cache) {
-	granted := cache.Granted(keyStore)
-	sort.Strings(granted)
+	granted := slices.Sorted(slices.Values(cache.Granted(keyStore)))
 	fmt.Printf("Cache enabled for %s\n", keyStore)
 	fmt.Printf("  titles: %s\n", strings.Join(granted, ", "))
 	if st := cache.Status(keyStore); st.Cached {
-		fmt.Printf("  expires in %s\n", formatDuration(st.ExpiresIn))
+		fmt.Printf("  expires in %s\n", tui.FormatDuration(st.ExpiresIn))
 	}
 }
