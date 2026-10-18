@@ -183,3 +183,83 @@ The first word of <cmd> selects the config section (falling back to "default").
 Requires keepassxc-cli in PATH.
 `)
 }
+
+const usageText = `Usage:
+  kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+           [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
+           [--template=name:path,...] [--askpass=name] [--askpass-reads=N]
+           [--dry-run] -- <cmd> [args...]
+  kdbx-cli config [--config <path>] [-y]
+  kdbx-cli check  [--config <path>] [-y]
+  kdbx-cli show   [--config <path>]
+  kdbx-cli forget [--config <path>]
+  kdbx-cli load   [--config <path>] [--key-store <path>] [--secrets=name:env,...]
+                  [--stdin=name,...] [--secret-file=name,...]
+                  [--template=name:path,...] [--askpass=name]
+  kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
+  kdbx-cli completion bash|zsh
+  kdbx-cli install-completions|uninstall-completions [bash|zsh|all]
+  kdbx-cli version | --version | -v | --origin | --buildinfo
+
+Runs <cmd> with secrets from a .kdbx key-store delivered through environment
+variables, its stdin, a file or an askpass helper. Secrets never touch your
+shell history, the command line or the disk.
+
+Commands:
+  config   Edit the default section interactively; then verify/create the
+           key-store and its secrets.
+  check    Verify every .kdbx in the config has all referenced secrets;
+           offer to add the missing ones as empty entries.
+  show     Display the config; navigate key-stores with ↑/↓ and press Enter
+           to open the selected .kdbx in the KeePassXC GUI.
+  forget   Clear every cached key-store password, including stores no
+           longer referenced by the config.
+
+  load     Ask for the master password once and allow the cache to serve
+           the secrets named by the given flags in later runs; repeated
+           loads add titles, forget or the cache TTL drops them.
+
+  migrate  Upgrade the config file to the current schema version
+           (--from defaults to 0, --to to the current version).
+
+Password caching is opt-in via the config's "cached" section
+({"enabled": true, "ttl": "10m"}); it stores the .kdbx master password in the
+kernel keyring on Linux (the OS keyring elsewhere) and uses it only for the
+secrets the config grants to the command. Disabled by default.
+
+Flags:
+  --config <path>          Config file (default: ~/.config/kdbx-cli/default)
+  --key-store <path>       Path to the .kdbx file (overrides config)
+  --secrets=name:env,...   Secret-to-env mapping (merged over config)
+  --stdin=name,...         Write these secrets to the command's stdin, one per
+                           line in the given order, then close it
+                           (docker login --password-stdin, gh auth login
+                           --with-token, vault login -)
+  --stdin-keep-open        Keep stdin open after the secrets and pass the rest
+                           of our own stdin through (sudo -S)
+  --secret-file=name,...   Expose each secret as a file and substitute its path
+                           for the {{name}} placeholder in <cmd>
+                           (restic --password-file {{name}})
+  --template=name:path,... Render the file at path, replacing every {{Title}}
+                           found in its content with the secret's value, then
+                           substitute its path for the {{name}} placeholder in
+                           <cmd> (paths ending in .json are JSON-escaped)
+  --askpass=name           Serve this secret through an askpass helper for
+                           commands that only read from the terminal; sets
+                           SSH_ASKPASS, SUDO_ASKPASS, GIT_ASKPASS,
+                           RESTIC_PASSWORD_COMMAND, BORG_PASSCOMMAND
+                           (sudo still needs its own -A flag); the secret is
+                           handed out once, later requests get an empty answer
+  --askpass-reads=N        Hand the askpass secret out up to N times (for
+                           scripts that run several consumers, e.g. restic
+                           backup && restic forget)
+  --dry-run                Print the resolved plan and exit; do not read the
+                           key-store, prompt for a password, or run the command
+  -y, --yes                For config/check: assume yes (create missing
+                           key-stores and empty secrets without prompting)
+  --path                   Print every path this tool uses: the config file
+                           and each section's key-store
+
+The first word of <cmd> selects the config section (falling back to "default").
+Requires keepassxc-cli in PATH.
+`
