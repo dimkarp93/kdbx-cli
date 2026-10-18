@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -37,128 +38,101 @@ func splitArgs(args []string) (left, child []string, hasSep bool) {
 
 func parseRunFlags(args []string) (runFlags, error) {
 	f := runFlags{secrets: map[string]string{}}
-	needValue := func(i int) (string, error) {
-		if i+1 >= len(args) {
-			return "", fmt.Errorf("%s requires a value", args[i])
-		}
-		return args[i+1], nil
-	}
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--config":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			f.configPath = v
-			i++
-		case strings.HasPrefix(a, "--config="):
-			f.configPath = strings.TrimPrefix(a, "--config=")
-		case a == "--key-store":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			f.keyStore = v
-			i++
-		case strings.HasPrefix(a, "--key-store="):
-			f.keyStore = strings.TrimPrefix(a, "--key-store=")
-		case a == "--secrets":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			if err := mergeSecretsFlag(f.secrets, v); err != nil {
-				return f, err
-			}
-			i++
-		case strings.HasPrefix(a, "--secrets="):
-			if err := mergeSecretsFlag(f.secrets, strings.TrimPrefix(a, "--secrets=")); err != nil {
-				return f, err
-			}
-		case a == "--stdin":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			f.stdin = append(f.stdin, splitList(v)...)
-			i++
-		case strings.HasPrefix(a, "--stdin="):
-			f.stdin = append(f.stdin, splitList(strings.TrimPrefix(a, "--stdin="))...)
-		case a == "--stdin-keep-open":
-			f.stdinKeepOpen = true
-		case a == "--secret-file":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			f.files = append(f.files, splitList(v)...)
-			i++
-		case strings.HasPrefix(a, "--secret-file="):
-			f.files = append(f.files, splitList(strings.TrimPrefix(a, "--secret-file="))...)
-		case a == "--template":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			parsed, err := parseTemplatesFlag(v)
-			if err != nil {
-				return f, err
-			}
-			f.templates = append(f.templates, parsed...)
-			i++
-		case strings.HasPrefix(a, "--template="):
-			parsed, err := parseTemplatesFlag(strings.TrimPrefix(a, "--template="))
-			if err != nil {
-				return f, err
-			}
-			f.templates = append(f.templates, parsed...)
-		case a == "--askpass":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			f.askpass = v
-			i++
-		case strings.HasPrefix(a, "--askpass="):
-			f.askpass = strings.TrimPrefix(a, "--askpass=")
-		case a == "--askpass-reads":
-			v, err := needValue(i)
-			if err != nil {
-				return f, err
-			}
-			if f.askpassReads, err = parseAskpassReads(v); err != nil {
-				return f, err
-			}
-			i++
-		case strings.HasPrefix(a, "--askpass-reads="):
-			var err error
-			if f.askpassReads, err = parseAskpassReads(strings.TrimPrefix(a, "--askpass-reads=")); err != nil {
-				return f, err
-			}
-		case a == "--dry-run":
-			f.dryRun = true
-		default:
-			return f, fmt.Errorf("unknown flag: %s", a)
+		consumed, err := f.parseArg(args, i)
+		if err != nil {
+			return f, err
 		}
+		i += consumed
 	}
 	return f, nil
 }
 
+func (f *runFlags) parseArg(args []string, i int) (int, error) {
+	arg := args[i]
+	if f.setSwitch(arg) {
+		return 0, nil
+	}
+	if name, value, ok := strings.Cut(arg, "="); ok && slices.Contains(valueFlagNames, name) {
+		return 0, f.setValue(name, value)
+	}
+
+	if !slices.Contains(valueFlagNames, arg) {
+		return 0, fmt.Errorf("unknown flag: %s", arg)
+	}
+	if i+1 >= len(args) {
+		return 0, fmt.Errorf("%s requires a value", arg)
+	}
+	return 1, f.setValue(arg, args[i+1])
+}
+
+func (f *runFlags) setSwitch(name string) bool {
+	switch name {
+	case "--stdin-keep-open":
+		f.stdinKeepOpen = true
+	case "--dry-run":
+		f.dryRun = true
+	default:
+		return false
+	}
+	return true
+}
+
+func (f *runFlags) setValue(name, value string) error {
+	switch name {
+	case "--config":
+		f.configPath = value
+	case "--key-store":
+		f.keyStore = value
+	case "--secrets":
+		return mergeSecretsFlag(f.secrets, value)
+	case "--stdin":
+		f.stdin = slices.Concat(f.stdin, splitList(value))
+	case "--secret-file":
+		f.files = slices.Concat(f.files, splitList(value))
+	case "--template":
+		return f.addTemplates(value)
+	case "--askpass":
+		f.askpass = value
+	case "--askpass-reads":
+		return f.setAskpassReads(value)
+	}
+	return nil
+}
+
+func (f *runFlags) addTemplates(spec string) error {
+	parsed, err := parseTemplatesFlag(spec)
+	if err != nil {
+		return err
+	}
+	f.templates = slices.Concat(f.templates, parsed)
+	return nil
+}
+
+func (f *runFlags) setAskpassReads(value string) error {
+	n, err := parseAskpassReads(value)
+	if err != nil {
+		return err
+	}
+	f.askpassReads = n
+	return nil
+}
+
+func splitNameValue(part string) (string, string, bool) {
+	i := strings.LastIndex(part, ":")
+	if i < 0 {
+		return "", "", false
+	}
+
+	name := strings.TrimSpace(part[:i])
+	value := strings.TrimSpace(part[i+1:])
+	return name, value, name != "" && value != ""
+}
+
 func mergeSecretsFlag(dst map[string]string, spec string) error {
-	for _, part := range strings.Split(spec, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		i := strings.LastIndex(part, ":")
-		if i < 0 {
-			return fmt.Errorf("invalid secrets entry %q (expected name:env)", part)
-		}
-		name := strings.TrimSpace(part[:i])
-		env := strings.TrimSpace(part[i+1:])
-		if name == "" || env == "" {
+	for _, part := range splitList(spec) {
+		name, env, ok := splitNameValue(part)
+		if !ok {
 			return fmt.Errorf("invalid secrets entry %q (expected name:env)", part)
 		}
 		dst[env] = name
@@ -168,18 +142,9 @@ func mergeSecretsFlag(dst map[string]string, spec string) error {
 
 func parseTemplatesFlag(spec string) ([]config.Template, error) {
 	var out []config.Template
-	for _, part := range strings.Split(spec, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		i := strings.LastIndex(part, ":")
-		if i < 0 {
-			return nil, fmt.Errorf("invalid template entry %q (expected name:path)", part)
-		}
-		name := strings.TrimSpace(part[:i])
-		path := strings.TrimSpace(part[i+1:])
-		if name == "" || path == "" {
+	for _, part := range splitList(spec) {
+		name, path, ok := splitNameValue(part)
+		if !ok {
 			return nil, fmt.Errorf("invalid template entry %q (expected name:path)", part)
 		}
 		out = append(out, config.Template{Name: name, Path: path})
