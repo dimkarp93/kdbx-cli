@@ -22,6 +22,10 @@ type runFlags struct {
 	dryRun        bool
 }
 
+var valueFlagNames = []string{
+	"--config", "--key-store", "--secrets", "--stdin", "--secret-file", "--template", "--askpass", "--askpass-reads",
+}
+
 func splitArgs(args []string) (left, child []string, hasSep bool) {
 	for i, a := range args {
 		if a == "--" {
