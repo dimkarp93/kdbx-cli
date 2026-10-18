@@ -33,48 +33,62 @@ func (s *Set) File(name, value string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot create in-memory file for %q: %w", name, err)
 	}
-	if err := f.Chmod(0600); err != nil {
-		f.Close()
-		return nil, err
-	}
-	if _, err := f.WriteString(value); err != nil {
-		f.Close()
-		return nil, err
-	}
-	if err := sealAnonFile(f); err != nil {
-		f.Close()
-		return nil, err
-	}
-	if _, err := f.Seek(0, 0); err != nil {
+
+	if err := fillSealed(f, value); err != nil {
 		f.Close()
 		return nil, err
 	}
 	return f, nil
 }
 
+func fillSealed(f *os.File, value string) error {
+	if err := f.Chmod(0600); err != nil {
+		return err
+	}
+	if _, err := f.WriteString(value); err != nil {
+		return err
+	}
+	if err := sealAnonFile(f); err != nil {
+		return err
+	}
+
+	_, err := f.Seek(0, 0)
+	return err
+}
+
 func (s *Set) Askpass(name, value string, reads int) (string, error) {
 	if err := s.makeDir(); err != nil {
 		return "", err
 	}
+
 	fifo := filepath.Join(s.dir, "secret")
 	if err := syscall.Mkfifo(fifo, 0600); err != nil {
 		return "", fmt.Errorf("cannot create fifo for %q: %w", name, err)
 	}
+
 	script := filepath.Join(s.dir, "askpass.sh")
-	body := "#!/bin/sh\n" +
+	if err := os.WriteFile(script, []byte(helperScript(fifo)), 0700); err != nil {
+		return "", err
+	}
+
+	s.wg.Add(1)
+	go s.feed(fifo, value+"\n", AskpassReads(reads))
+	return script, nil
+}
+
+func AskpassReads(requested int) int {
+	if requested > 0 {
+		return requested
+	}
+	return DefaultAskpassReads
+}
+
+func helperScript(fifo string) string {
+	return "#!/bin/sh\n" +
 		"case \"$1\" in\n" +
 		"Username*|*'(yes/no'*) exit 1 ;;\n" +
 		"esac\n" +
 		"exec head -n 1 " + shellQuote(fifo) + "\n"
-	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
-		return "", err
-	}
-	if reads <= 0 {
-		reads = DefaultAskpassReads
-	}
-	s.wg.Add(1)
-	go s.feed(fifo, value+"\n", reads)
-	return script, nil
 }
 
 func (s *Set) Close() {
@@ -89,11 +103,8 @@ func (s *Set) makeDir() error {
 	if s.dir != "" {
 		return nil
 	}
-	base := os.Getenv("XDG_RUNTIME_DIR")
-	if fi, err := os.Stat(base); base == "" || err != nil || !fi.IsDir() {
-		base = ""
-	}
-	dir, err := os.MkdirTemp(base, "kdbx-cli-")
+
+	dir, err := os.MkdirTemp(runtimeBaseDir(), "kdbx-cli-")
 	if err != nil {
 		return err
 	}
@@ -101,8 +112,17 @@ func (s *Set) makeDir() error {
 		os.RemoveAll(dir)
 		return err
 	}
+
 	s.dir = dir
 	return nil
+}
+
+func runtimeBaseDir() string {
+	base := os.Getenv("XDG_RUNTIME_DIR")
+	if fi, err := os.Stat(base); base == "" || err != nil || !fi.IsDir() {
+		return ""
+	}
+	return base
 }
 
 // The helper takes only the first line, so a reader that lingers after its own read and
@@ -118,6 +138,7 @@ func (s *Set) feed(path, value string, reads int) {
 			f.WriteString(value)
 		}
 		f.Close()
+
 		select {
 		case <-s.done:
 			return
