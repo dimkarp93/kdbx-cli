@@ -206,15 +206,3 @@ func exitCode(err error) int {
 	fmt.Fprintln(os.Stderr, "command failed:", err)
 	return 1
 }
-
-const firstExtraFD = 3
-
-const passwordEnv = "KDBX_CLI_PASSWORD"
-
-var askpassEnv = []string{
-	"SSH_ASKPASS",
-	"SUDO_ASKPASS",
-	"GIT_ASKPASS",
-	"RESTIC_PASSWORD_COMMAND",
-	"BORG_PASSCOMMAND",
-}
