@@ -496,7 +496,7 @@ func TestWithAskpass(t *testing.T) {
 }
 
 func TestChildEnvDropsPassword(t *testing.T) {
-	got := childEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
+	got := inheritedEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
 	assert.Equal(t, []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}, got)
 }
 

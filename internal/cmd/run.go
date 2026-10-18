@@ -115,7 +115,7 @@ func cmdRun(flags runFlags, child []string) int {
 		envNames = append(envNames, n)
 	}
 	sort.Strings(envNames)
-	env := childEnv(os.Environ())
+	env := inheritedEnv(os.Environ())
 	for _, name := range envNames {
 		env = append(env, name+"="+values[res.Secrets[name]])
 	}
@@ -207,7 +207,7 @@ const firstExtraFD = 3
 
 const passwordEnv = "KDBX_CLI_PASSWORD"
 
-func childEnv(environ []string) []string {
+func inheritedEnv(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		if k, _, _ := strings.Cut(kv, "="); k != passwordEnv {
