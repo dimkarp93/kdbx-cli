@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"maps"
+	"slices"
 )
 
 type Resolved struct {
@@ -28,7 +29,12 @@ type Overrides struct {
 }
 
 func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
-	panic("not implemented")
+	layers := slices.Concat(sectionLayers(cfg, tool), []config.Section{config.Section(over)})
+	r := Resolved{Secrets: map[string]string{}}
+	for _, layer := range layers {
+		r = r.overlay(layer)
+	}
+	return r
 }
 func sectionLayers(cfg config.Config, tool string) []config.Section {
 	var layers []config.Section
