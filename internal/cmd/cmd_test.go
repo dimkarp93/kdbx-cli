@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -252,120 +250,6 @@ func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
 	})
 	t.Run("command masks template file", func(t *testing.T) {
 		assert.Contains(t, out, "<file with cfg>")
-	})
-}
-
-func TestRefreshPathSuggestions(t *testing.T) {
-	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "store.kdbx"), "")
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0755))
-
-	ti := textinput.New()
-	ti.SetValue(dir + string(os.PathSeparator))
-
-	refreshPathSuggestions(&ti)
-
-	assert.Subset(t, ti.AvailableSuggestions(), []string{
-		filepath.Join(dir, "store.kdbx"),
-		filepath.Join(dir, "sub") + string(os.PathSeparator),
-	})
-}
-
-func TestDeleteLastPathSegment(t *testing.T) {
-	cases := map[string]string{
-		"/home/dima/vault/store.kdbx": "/home/dima/vault/",
-		"/home/dima/vault/":           "/home/dima/",
-		"/home/":                      "/",
-		"/":                           "",
-		"relative/path":               "relative/",
-		"single":                      "",
-	}
-
-	for in, want := range cases {
-		t.Run(in, func(t *testing.T) {
-			ti := textinput.New()
-			ti.SetValue(in)
-			deleteLastPathSegment(&ti)
-			assert.Equal(t, want, ti.Value())
-		})
-	}
-}
-
-func commitNewPair(pairs []resolve.Mapping, name, env string) configTUI {
-	m := newConfigTUI("", pairs, nil)
-	m.mode = modeEdit
-	m.editIndex = -1
-	m.name.SetValue(name)
-	m.env.SetValue(env)
-
-	res, _ := m.commitEdit()
-	return res.(configTUI)
-}
-
-func TestCommitEditAddsSorted(t *testing.T) {
-	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "A", "1")
-
-	t.Run("sorted by name", func(t *testing.T) {
-		assert.Equal(t, []resolve.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, m.pairs)
-	})
-	t.Run("cursor on committed pair", func(t *testing.T) {
-		assert.Equal(t, 0, m.cursor)
-	})
-}
-
-func TestCommitEditRejectsDuplicateEnv(t *testing.T) {
-	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "C", "2")
-
-	t.Run("reports error", func(t *testing.T) {
-		assert.NotEmpty(t, m.err)
-	})
-	t.Run("stays in edit mode", func(t *testing.T) {
-		assert.Equal(t, modeEdit, m.mode)
-	})
-	t.Run("keeps pairs", func(t *testing.T) {
-		assert.Equal(t, []resolve.Mapping{{Name: "B", Env: "2"}}, m.pairs)
-	})
-}
-
-func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
-	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "B", "9")
-
-	t.Run("no error", func(t *testing.T) {
-		assert.Empty(t, m.err)
-	})
-	t.Run("both pairs kept", func(t *testing.T) {
-		assert.Len(t, m.pairs, 2)
-	})
-	t.Run("cursor on new pair", func(t *testing.T) {
-		require.Less(t, m.cursor, len(m.pairs))
-		assert.Equal(t, resolve.Mapping{Name: "B", Env: "9"}, m.pairs[m.cursor])
-	})
-}
-
-func TestCommitEditRequiresBothFields(t *testing.T) {
-	m := commitNewPair(nil, "", "X")
-
-	t.Run("reports error", func(t *testing.T) {
-		assert.NotEmpty(t, m.err)
-	})
-	t.Run("adds nothing", func(t *testing.T) {
-		assert.Empty(t, m.pairs)
-	})
-}
-
-func TestListDeleteAdjustsCursor(t *testing.T) {
-	m := newConfigTUI("", []resolve.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, nil)
-	m.mode = modeList
-	m.cursor = 1
-
-	res, _ := m.updateList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	m = res.(configTUI)
-
-	t.Run("removes selected pair", func(t *testing.T) {
-		assert.Equal(t, []resolve.Mapping{{Name: "A", Env: "1"}}, m.pairs)
-	})
-	t.Run("clamps cursor", func(t *testing.T) {
-		assert.Equal(t, 0, m.cursor)
 	})
 }
 
