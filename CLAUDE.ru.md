@@ -51,10 +51,10 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 
 ## Структура
 
-Код разбит на пакеты под `internal/` (без циклов: `utils`/`config`/`term`/`secretpipe` — листья; `keepass → utils`; `keyring → config,utils`; `tmpl → config,utils`; `resolve → config,tmpl,utils`; `store → config,resolve,keepass,keyring,term,utils`; `deliver → config,secretpipe,tmpl,utils`; `tui → config,resolve,store,keyring,utils`; `cmd` — клей над всеми ними; корневой `main → cmd`).
+Код разбит на пакеты под `internal/` (без циклов: `config`/`term`/`secretpipe` — листья; `keepass` — лист; `keyring → config`; `tmpl → config`; `resolve → config,tmpl`; `store → config,resolve,keepass,keyring,term`; `deliver → config,secretpipe,tmpl`; `tui → config,resolve,store,keyring`; `cmd` — клей над всеми ними; корневой `main → cmd`).
 
 - `cmd/kdbx-cli/main.go` (package `main`) — только `var version` (задаётся через `-X main.version`) и вызов `cmd.Execute(version)`.
-- `internal/utils` — обобщённые утилиты коллекций: `Filter`, `Map`, `FlatMap`, `Unique`, `UniqueBy`, `GroupBy`, `ToSet`, `SortedKeys`, `SortedUnique`.
+- Утилиты коллекций (`Filter`, `Map`, `FlatMap`, `Unique`, `UniqueBy`, `GroupBy`, `ToSet`, `SortedKeys`, `SortedUnique`, `At`, `OrDefault`, `CountFunc`, `CountBy`) берутся из общего модуля `github.com/dimkarp93/utils/pkg/collections` (приватный, в `vendor/`); локального `internal/utils` нет.
 - `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save` (`Load` предупреждает о небезопасных правах через `WarnUnsafePermissions`/`PermissionWarnings`), `CurrentVersion`, `Migrate` (шаги миграции схемы); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine` (ищет `keepassxc-cli`, проверяет его права через `checkEngineFile` и фиксирует путь в `enginePath`), `Run` (вызов зафиксированного `keepassxc-cli`), разбор KeePass XML (`ParseSecrets`, тип `Entry`), `LookupSecret`; операции записи `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, методы `Get/Remember/Grant/Granted/Enabled/Forget/Status`, `entry`/`mergeTitles`, `ForgetAll`, интерфейс `backend` (`kernelBackend` на Linux, `secretServiceBackend` на остальных), `storeKey`, `storage`/`systemStorage`, `systemKeyring` (реализация `keyring.Keyring` на go-keyring).
@@ -79,7 +79,7 @@ kdbx-cli migrate [--config <path>] [--from <N>] [--to <N>]
 
 ## Сборка и тесты
 
-Зависит от `keepassxc-cli` в PATH. Go 1.26.1. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — kernel keyring через `golang.org/x/sys/unix` на Linux и `zalando/go-keyring` (godbus, без cgo) на остальных ОС. Сборка статическая (`CGO_ENABLED=0`).
+Зависит от `keepassxc-cli` в PATH. Go 1.27.2. TUI — на Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); кэш пароля — kernel keyring через `golang.org/x/sys/unix` на Linux и `zalando/go-keyring` (godbus, без cgo) на остальных ОС. Сборка статическая (`CGO_ENABLED=0`).
 
 - `make build` — собрать бинарь `./kdbx-cli` (версия из `versions.txt`).
 - `make unit-test` — юнит-тесты (`go test ./...`).

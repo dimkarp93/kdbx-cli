@@ -51,10 +51,10 @@ Password caching (`internal/keyring`) is opt-in only through the `cached` sectio
 
 ## Structure
 
-The code is split into packages under `internal/` (no cycles: `utils`/`config`/`term`/`secretpipe` are leaves; `keepass → utils`; `keyring → config,utils`; `tmpl → config,utils`; `resolve → config,tmpl,utils`; `store → config,resolve,keepass,keyring,term,utils`; `deliver → config,secretpipe,tmpl,utils`; `tui → config,resolve,store,keyring,utils`; `cmd` is glue over all of them; the root `main → cmd`).
+The code is split into packages under `internal/` (no cycles: `config`/`term`/`secretpipe` are leaves; `keepass` — a leaf; `keyring → config`; `tmpl → config`; `resolve → config,tmpl`; `store → config,resolve,keepass,keyring,term`; `deliver → config,secretpipe,tmpl`; `tui → config,resolve,store,keyring`; `cmd` is glue over all of them; the root `main → cmd`).
 
 - `cmd/kdbx-cli/main.go` (package `main`) — only `var version` (set via `-X main.version`) and the `cmd.Execute(version)` call.
-- `internal/utils` — generic collection helpers: `Filter`, `Map`, `FlatMap`, `Unique`, `UniqueBy`, `GroupBy`, `ToSet`, `SortedKeys`, `SortedUnique`.
+- Collection helpers (`Filter`, `Map`, `FlatMap`, `Unique`, `UniqueBy`, `GroupBy`, `ToSet`, `SortedKeys`, `SortedUnique`, `At`, `OrDefault`, `CountFunc`, `CountBy`) come from the shared module `github.com/dimkarp93/utils/pkg/collections` (private, vendored); there is no local `internal/utils`.
 - `internal/config` — `Config{Sections,Cache}`/`Section`/`CacheConfig` (JSON), `Load`/`Save` (`Load` warns about unsafe permissions through `WarnUnsafePermissions`/`PermissionWarnings`), `CurrentVersion`, `Migrate` (schema migration steps); `ExpandHome`, `Dir` (`~/.config/kdbx-cli`), `DefaultPath` (`~/.config/kdbx-cli/default`).
 - `internal/keepass` — `CheckEngine` (finds `keepassxc-cli`, vets its permissions with `checkEngineFile` and pins the path in `enginePath`), `Run` (invoking the pinned `keepassxc-cli`), KeePass XML parsing (`ParseSecrets`, the `Entry` type), `LookupSecret`; write operations `CreateStore` (`db-create`), `AddEmptySecret` (`mkdir`+`add`).
 - `internal/keyring` — `Cache`, `New(cfg.Cache)`, the `Get/Remember/Grant/Granted/Enabled/Forget/Status` methods, `entry`/`mergeTitles`, `ForgetAll`, the `backend` interface (`kernelBackend` on Linux, `secretServiceBackend` elsewhere), `storeKey`, `storage`/`systemStorage`, `systemKeyring` (the go-keyring implementation of `keyring.Keyring`).
@@ -79,7 +79,7 @@ The code is split into packages under `internal/` (no cycles: `utils`/`config`/`
 
 ## Building and tests
 
-Depends on `keepassxc-cli` being in PATH. Go 1.26.1. The TUI is built on Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); password caching uses the kernel keyring through `golang.org/x/sys/unix` on Linux and `zalando/go-keyring` (godbus, no cgo) elsewhere. The build is static (`CGO_ENABLED=0`).
+Depends on `keepassxc-cli` being in PATH. Go 1.27.2. The TUI is built on Bubble Tea (`charmbracelet/bubbletea`, `bubbles`, `lipgloss`); password caching uses the kernel keyring through `golang.org/x/sys/unix` on Linux and `zalando/go-keyring` (godbus, no cgo) elsewhere. The build is static (`CGO_ENABLED=0`).
 
 - `make build` — build the `./kdbx-cli` binary (version taken from `versions.txt`).
 - `make unit-test` — unit tests (`go test ./...`).
