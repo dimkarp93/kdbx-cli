@@ -19,6 +19,13 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
+type runPlan struct {
+	cfgPath string
+	tool    string
+	cfg     config.Config
+	res     resolve.Resolved
+}
+
 func cmdRun(flags runFlags, child []string) int {
 	if len(child) == 0 {
 		fmt.Fprintln(os.Stderr, "no command specified after --")
@@ -280,4 +287,11 @@ func withAskpass(env []string, script string) []string {
 		out = append(out, k+"="+set[k])
 	}
 	return out
+}
+
+type childSpec struct {
+	args       []string
+	env        []string
+	stdin      io.Reader
+	extraFiles []*os.File
 }
