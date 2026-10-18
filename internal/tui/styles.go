@@ -13,11 +13,22 @@ var (
 )
 
 func sectionLabel(name string, focused bool) string {
-	panic("not implemented")
+	if focused {
+		return focusStyle.Render("▸ " + name)
+	}
+	return "  " + name
 }
+
 func fieldMark(focused bool) string {
-	panic("not implemented")
+	if focused {
+		return focusStyle.Render("▸ ")
+	}
+	return "  "
 }
+
 func listLine(text string, selected bool) string {
-	panic("not implemented")
+	if selected {
+		return focusStyle.Render("  > "+text) + "\n"
+	}
+	return "    " + text + "\n"
 }
