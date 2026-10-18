@@ -1,7 +1,9 @@
 package resolve
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
 )
 
 type Mapping struct {
@@ -10,19 +12,28 @@ type Mapping struct {
 }
 
 func compareMappings(a, b Mapping) int {
-	panic("not implemented")
+	return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Env, b.Env))
 }
 func SortMappings(pairs []Mapping) {
-	panic("not implemented")
+	slices.SortFunc(pairs, compareMappings)
 }
 func MappingsFromMap(envToName map[string]string) []Mapping {
-	panic("not implemented")
+	out := make([]Mapping, 0, len(envToName))
+	for env, name := range envToName {
+		out = append(out, Mapping{Name: name, Env: env})
+	}
+	SortMappings(out)
+	return out
 }
 func MappingsToMap(pairs []Mapping) map[string]string {
-	panic("not implemented")
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		m[p.Env] = p.Name
+	}
+	return m
 }
 func MappingName(m Mapping) string {
-	panic("not implemented")
+	return m.Name
 }
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
