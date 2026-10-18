@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,9 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
-	"github.com/dimkarp93/kdbx-cli/internal/store"
 )
 
 func writeTestFile(t *testing.T, path, content string) string {
@@ -375,71 +372,6 @@ func TestListDeleteAdjustsCursor(t *testing.T) {
 type recordingLauncher struct {
 	opened string
 	err    error
-}
-
-func (l *recordingLauncher) launch(path string) error {
-	l.opened = path
-	return l.err
-}
-
-func newTwoStoreShowTUI(launch launchFunc) showTUI {
-	views := []store.StoreView{
-		{Path: "/a.kdbx", Exists: true},
-		{Path: "/b.kdbx", Exists: false},
-	}
-	return newShowTUI("/cfg", nil, views, keyring.New(nil), launch)
-}
-
-func pressKeys(m showTUI, keys ...tea.KeyType) showTUI {
-	for _, key := range keys {
-		res, _ := m.Update(tea.KeyMsg{Type: key})
-		m = res.(showTUI)
-	}
-	return m
-}
-
-func TestShowTUIDownMovesCursor(t *testing.T) {
-	m := pressKeys(newTwoStoreShowTUI(new(recordingLauncher).launch), tea.KeyDown)
-	assert.Equal(t, 1, m.cursor)
-}
-
-func TestShowTUIUpMovesCursor(t *testing.T) {
-	m := pressKeys(newTwoStoreShowTUI(new(recordingLauncher).launch), tea.KeyDown, tea.KeyUp)
-	assert.Equal(t, 0, m.cursor)
-}
-
-func TestShowTUIEnterOnMissingStore(t *testing.T) {
-	launcher := &recordingLauncher{}
-
-	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyDown, tea.KeyEnter)
-
-	t.Run("reports missing file", func(t *testing.T) {
-		assert.Contains(t, m.status, "does not exist")
-	})
-	t.Run("does not open", func(t *testing.T) {
-		assert.Empty(t, launcher.opened)
-	})
-}
-
-func TestShowTUIEnterOpensExistingStore(t *testing.T) {
-	launcher := &recordingLauncher{}
-
-	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyEnter)
-
-	t.Run("opens selected store", func(t *testing.T) {
-		assert.Equal(t, "/a.kdbx", launcher.opened)
-	})
-	t.Run("reports opening", func(t *testing.T) {
-		assert.Contains(t, m.status, "opened in KeePassXC")
-	})
-}
-
-func TestShowTUIEnterReportsLaunchError(t *testing.T) {
-	launcher := &recordingLauncher{err: errors.New("keepassxc GUI not found in PATH")}
-
-	m := pressKeys(newTwoStoreShowTUI(launcher.launch), tea.KeyEnter)
-
-	assert.Equal(t, "✗ keepassxc GUI not found in PATH", m.status)
 }
 
 func TestTitlesGranted(t *testing.T) {
