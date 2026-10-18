@@ -13,7 +13,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/store"
 	"github.com/dimkarp93/kdbx-cli/internal/term"
 	"github.com/dimkarp93/kdbx-cli/internal/tui"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 func cmdConfig(path string, assumeYes bool) {
@@ -106,7 +106,7 @@ func cmdForget(path string) {
 }
 
 func titlesOf(pairs []resolve.Mapping) []string {
-	return slices.Sorted(slices.Values(utils.Map(pairs, resolve.MappingName)))
+	return slices.Sorted(slices.Values(collections.Map(pairs, resolve.MappingName)))
 }
 
 func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve.Mapping) {
@@ -128,5 +128,5 @@ func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve
 }
 
 func formatSecrets(pairs []resolve.Mapping) string {
-	return strings.Join(utils.Map(pairs, func(p resolve.Mapping) string { return p.Name + ":" + p.Env }), ",")
+	return strings.Join(collections.Map(pairs, func(p resolve.Mapping) string { return p.Name + ":" + p.Env }), ",")
 }

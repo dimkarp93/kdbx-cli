@@ -7,7 +7,7 @@ import (
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 const (
@@ -30,17 +30,17 @@ func usageEnvPairs(u sectionUsage) []resolve.Mapping { return u.envPairs }
 func usageChannels(u sectionUsage) []resolve.Mapping { return u.channels }
 
 func AggregateStores(cfg config.Config) map[string][]string {
-	byStore := utils.GroupBy(sectionUsages(cfg), usageKeyStore)
+	byStore := collections.GroupBy(sectionUsages(cfg), usageKeyStore)
 
 	out := make(map[string][]string, len(byStore))
 	for ks, group := range byStore {
-		out[ks] = utils.SortedUnique(utils.FlatMap(group, usageTitles))
+		out[ks] = collections.SortedUnique(collections.FlatMap(group, usageTitles))
 	}
 	return out
 }
 
 func AggregateStoreMappings(cfg config.Config) map[string][]resolve.Mapping {
-	byStore := utils.GroupBy(sectionUsages(cfg), usageKeyStore)
+	byStore := collections.GroupBy(sectionUsages(cfg), usageKeyStore)
 
 	out := make(map[string][]resolve.Mapping, len(byStore))
 	for ks, group := range byStore {
@@ -51,7 +51,7 @@ func AggregateStoreMappings(cfg config.Config) map[string][]resolve.Mapping {
 
 func sectionUsages(cfg config.Config) []sectionUsage {
 	var usages []sectionUsage
-	for _, section := range utils.SortedKeys(cfg.Sections) {
+	for _, section := range collections.SortedKeys(cfg.Sections) {
 		if u, ok := sectionUsageOf(cfg, section); ok {
 			usages = append(usages, u)
 		}
@@ -93,7 +93,7 @@ func channelMappings(res resolve.Resolved, tmplTitles []string) []resolve.Mappin
 }
 
 func withChannel(names []string, channel string) []resolve.Mapping {
-	return utils.Map(names, func(name string) resolve.Mapping {
+	return collections.Map(names, func(name string) resolve.Mapping {
 		return resolve.Mapping{Name: name, Env: channel}
 	})
 }
@@ -106,10 +106,10 @@ func nonEmptyList(name string) []string {
 }
 
 func storeMappings(group []sectionUsage) []resolve.Mapping {
-	envPairs := utils.Unique(utils.FlatMap(group, usageEnvPairs))
-	hasEnv := utils.ToSet(utils.Map(envPairs, resolve.MappingName))
-	channels := utils.UniqueBy(utils.FlatMap(group, usageChannels), resolve.MappingName)
-	channelOnly := utils.Filter(channels, func(m resolve.Mapping) bool { return !hasEnv[m.Name] })
+	envPairs := collections.Unique(collections.FlatMap(group, usageEnvPairs))
+	hasEnv := collections.ToSet(collections.Map(envPairs, resolve.MappingName))
+	channels := collections.UniqueBy(collections.FlatMap(group, usageChannels), resolve.MappingName)
+	channelOnly := collections.Filter(channels, func(m resolve.Mapping) bool { return !hasEnv[m.Name] })
 
 	pairs := slices.Concat(envPairs, channelOnly)
 	resolve.SortMappings(pairs)
@@ -124,7 +124,7 @@ type StoreView struct {
 
 func BuildStoreViews(cfg config.Config) []StoreView {
 	byStore := AggregateStoreMappings(cfg)
-	return utils.Map(utils.SortedKeys(byStore), func(path string) StoreView {
+	return collections.Map(collections.SortedKeys(byStore), func(path string) StoreView {
 		return StoreView{Path: path, Exists: fileExists(path), Mappings: byStore[path]}
 	})
 }

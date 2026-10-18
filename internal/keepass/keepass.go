@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type kpFile struct {
@@ -107,8 +107,8 @@ func ParseSecrets(xmlData string) ([]Entry, error) {
 
 func groupEntries(g kpGroup, prefix []string, depth int) []Entry {
 	path := groupPath(g, prefix, depth)
-	own := utils.Filter(utils.Map(g.Entries, func(e kpXMLEntry) Entry { return toEntry(e, path) }), hasTitle)
-	nested := utils.FlatMap(g.Groups, func(child kpGroup) []Entry { return groupEntries(child, path, depth+1) })
+	own := collections.Filter(collections.Map(g.Entries, func(e kpXMLEntry) Entry { return toEntry(e, path) }), hasTitle)
+	nested := collections.FlatMap(g.Groups, func(child kpGroup) []Entry { return groupEntries(child, path, depth+1) })
 	return slices.Concat(own, nested)
 }
 
@@ -138,7 +138,7 @@ func hasTitle(e Entry) bool {
 
 func LookupSecret(entries []Entry, name string) (string, error) {
 	byPath := strings.Contains(name, "/")
-	matches := utils.Filter(entries, func(e Entry) bool {
+	matches := collections.Filter(entries, func(e Entry) bool {
 		return (byPath && e.Path == name) || (!byPath && e.Title == name)
 	})
 
@@ -148,7 +148,7 @@ func LookupSecret(entries []Entry, name string) (string, error) {
 	case 1:
 		return matches[0].Value, nil
 	default:
-		paths := strings.Join(utils.Map(matches, entryPath), ", ")
+		paths := strings.Join(collections.Map(matches, entryPath), ", ")
 		return "", fmt.Errorf("secret %q is ambiguous, matches: %s (use full Group/Title path)", name, paths)
 	}
 }

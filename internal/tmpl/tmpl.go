@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 var placeholderRe = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
@@ -30,7 +30,7 @@ func Titles(path string) ([]string, error) {
 	}
 
 	matches := placeholderRe.FindAllSubmatch(data, -1)
-	return utils.Unique(utils.Map(matches, submatchName)), nil
+	return collections.Unique(collections.Map(matches, submatchName)), nil
 }
 
 func submatchName(match [][]byte) string {

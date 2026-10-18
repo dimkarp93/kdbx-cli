@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 const passwordEnv = "KDBX_CLI_PASSWORD"
@@ -23,22 +23,22 @@ func envKey(kv string) string {
 }
 
 func InheritedEnv(environ []string) []string {
-	return utils.Filter(environ, func(kv string) bool { return envKey(kv) != passwordEnv })
+	return collections.Filter(environ, func(kv string) bool { return envKey(kv) != passwordEnv })
 }
 
 func SecretEnv(secrets, values map[string]string) []string {
-	return utils.Map(utils.SortedKeys(secrets), func(env string) string {
+	return collections.Map(collections.SortedKeys(secrets), func(env string) string {
 		return env + "=" + values[secrets[env]]
 	})
 }
 
 func WithAskpass(env []string, script string) []string {
 	overrides := askpassOverrides(script)
-	kept := utils.Filter(env, func(kv string) bool {
+	kept := collections.Filter(env, func(kv string) bool {
 		_, overridden := overrides[envKey(kv)]
 		return !overridden
 	})
-	added := utils.Map(utils.SortedKeys(overrides), func(k string) string { return k + "=" + overrides[k] })
+	added := collections.Map(collections.SortedKeys(overrides), func(k string) string { return k + "=" + overrides[k] })
 
 	return slices.Concat(kept, added)
 }

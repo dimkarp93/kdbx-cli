@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type Mapping struct {
@@ -52,7 +52,7 @@ func isInvalidEnvName(env string) bool {
 }
 
 func ValidateEnvNames(envToName map[string]string) error {
-	invalid := utils.Map(utils.Filter(utils.SortedKeys(envToName), isInvalidEnvName), strconv.Quote)
+	invalid := collections.Map(collections.Filter(collections.SortedKeys(envToName), isInvalidEnvName), strconv.Quote)
 	if len(invalid) == 0 {
 		return nil
 	}

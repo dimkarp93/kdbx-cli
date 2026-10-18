@@ -11,7 +11,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 const (
@@ -177,7 +177,7 @@ func decodeEntry(raw string) entry {
 }
 
 func mergeTitles(current, added []string) []string {
-	return utils.SortedUnique(slices.Concat(current, added))
+	return collections.SortedUnique(slices.Concat(current, added))
 }
 
 func (c Cache) Granted(keyStore string) []string {

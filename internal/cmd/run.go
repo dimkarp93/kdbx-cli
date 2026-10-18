@@ -16,7 +16,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
 	"github.com/dimkarp93/kdbx-cli/internal/store"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type runPlan struct {
@@ -79,7 +79,7 @@ func fetchSecrets(plan runPlan) (map[string]string, error) {
 
 	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, plan.tool)
 	cache := keyring.New(plan.cfg.Cache)
-	granted := utils.ToSet(slices.Concat(resolve.ConfiguredTitles(plan.cfg, plan.tool), cache.Granted(keyStore)))
+	granted := collections.ToSet(slices.Concat(resolve.ConfiguredTitles(plan.cfg, plan.tool), cache.Granted(keyStore)))
 	out, _, err := store.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
 	if err != nil {
 		return nil, err
