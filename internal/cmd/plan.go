@@ -78,7 +78,8 @@ func templateNames(templates []config.Template) []string {
 	return out
 }
 
-func printPlan(cfgPath, tool string, cfg config.Config, res resolve.Resolved, flags runFlags, child []string) {
+func printPlan(plan runPlan, flags runFlags, child []string) {
+	cfgPath, tool, cfg, res := plan.cfgPath, plan.tool, plan.cfg, plan.res
 	out := os.Stdout
 	fmt.Fprintln(out, "Dry run — the command will NOT be executed.")
 	fmt.Fprintln(out)

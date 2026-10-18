@@ -49,7 +49,7 @@ func cmdRun(flags runFlags, child []string) int {
 	}
 
 	if flags.dryRun {
-		printPlan(cfgPath, tool, cfg, res, flags, child)
+		printPlan(runPlan{cfgPath: cfgPath, tool: tool, cfg: cfg, res: res}, flags, child)
 		return 0
 	}
 

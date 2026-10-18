@@ -244,7 +244,7 @@ func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
 	res := resolve.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
 
 	out := captureStdout(t, func() {
-		printPlan("/cfg", "admin", config.Config{}, res, runFlags{}, []string{"admin", "{{cfg}}"})
+		printPlan(runPlan{cfgPath: "/cfg", tool: "admin", res: res}, runFlags{}, []string{"admin", "{{cfg}}"})
 	})
 
 	t.Run("templates block", func(t *testing.T) {
