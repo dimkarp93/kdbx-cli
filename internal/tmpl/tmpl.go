@@ -1,6 +1,9 @@
 package tmpl
 
 import (
+	"fmt"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"os"
 	"regexp"
 )
 
@@ -11,10 +14,15 @@ func isJSONTemplate(path string) bool {
 	panic("not implemented")
 }
 func Titles(path string) ([]string, error) {
-	panic("not implemented")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read template %s: %w", path, err)
+	}
+	matches := placeholderRe.FindAllSubmatch(data, -1)
+	return utils.Unique(utils.Map(matches, submatchName)), nil
 }
 func submatchName(match [][]byte) string {
-	panic("not implemented")
+	return string(match[1])
 }
 func Render(path string, values map[string]string) ([]byte, error) {
 	panic("not implemented")
