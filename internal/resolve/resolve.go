@@ -7,7 +7,7 @@ import (
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type Resolved struct {
@@ -92,7 +92,7 @@ func positiveOr(value, fallback int) int {
 
 func (r Resolved) AllTitles() []string {
 	titles := slices.Concat(slices.Collect(maps.Values(r.Secrets)), r.Stdin, r.Files, []string{r.Askpass})
-	return utils.Unique(utils.Filter(titles, isNonEmpty))
+	return collections.Unique(collections.Filter(titles, isNonEmpty))
 }
 
 func isNonEmpty(s string) bool {
@@ -108,11 +108,11 @@ func (r Resolved) TemplateTitles() ([]string, error) {
 		}
 		perTemplate = append(perTemplate, names)
 	}
-	return utils.Unique(slices.Concat(perTemplate...)), nil
+	return collections.Unique(slices.Concat(perTemplate...)), nil
 }
 
 func ConfiguredTitles(cfg config.Config, tool string) []string {
 	res := Resolve(cfg, tool, Overrides{})
 	tmplTitles, _ := res.TemplateTitles()
-	return utils.Unique(slices.Concat(res.AllTitles(), tmplTitles))
+	return collections.Unique(slices.Concat(res.AllTitles(), tmplTitles))
 }

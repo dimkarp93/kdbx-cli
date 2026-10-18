@@ -10,7 +10,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 func configPathOrDefault(path string) string {
@@ -38,7 +38,7 @@ func requestedTitles(res resolve.Resolved) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return utils.Unique(slices.Concat(res.AllTitles(), tmplTitles)), nil
+	return collections.Unique(slices.Concat(res.AllTitles(), tmplTitles)), nil
 }
 
 func errNoKeyStore(cfgPath string) error {

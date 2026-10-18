@@ -13,7 +13,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
 	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 func sortedMappings(secrets map[string]string) []resolve.Mapping {
@@ -56,10 +56,10 @@ func shellQuote(s string) string {
 }
 
 func renderCommand(mappings []resolve.Mapping, files []string, child []string) string {
-	envParts := utils.Map(mappings, func(m resolve.Mapping) string {
+	envParts := collections.Map(mappings, func(m resolve.Mapping) string {
 		return fmt.Sprintf("%s=<secret from %s>", m.Env, m.Name)
 	})
-	argParts := utils.Map(child, func(arg string) string {
+	argParts := collections.Map(child, func(arg string) string {
 		return shellQuote(maskFilePlaceholders(arg, files))
 	})
 	return strings.Join(slices.Concat(envParts, argParts), " ")
@@ -91,7 +91,7 @@ func printPlan(plan runPlan, flags runFlags, child []string) {
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Command:")
-	fileLikeNames := slices.Concat(res.Files, utils.Map(res.Templates, templateName))
+	fileLikeNames := slices.Concat(res.Files, collections.Map(res.Templates, templateName))
 	fmt.Fprintf(out, "  %s\n", renderCommand(sortedMappings(res.Secrets), fileLikeNames, child))
 }
 
@@ -118,7 +118,7 @@ func printPlanMappings(out io.Writer, mappings []resolve.Mapping) {
 	}
 
 	fmt.Fprintln(out, "Mappings (env ← secret):")
-	width := slices.Max(utils.Map(mappings, func(m resolve.Mapping) int { return len(m.Env) }))
+	width := slices.Max(collections.Map(mappings, func(m resolve.Mapping) int { return len(m.Env) }))
 	for _, m := range mappings {
 		fmt.Fprintf(out, "  %-*s ← %s\n", width, m.Env, m.Name)
 	}

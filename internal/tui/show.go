@@ -14,7 +14,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/store"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type LaunchFunc func(path string) error
@@ -50,7 +50,7 @@ func (d ShowData) cachingState() string {
 }
 
 func (d ShowData) storeDetails(v store.StoreView) []string {
-	mappings := utils.Map(v.Mappings, mappingLine)
+	mappings := collections.Map(v.Mappings, mappingLine)
 	if !d.cachingEnabled() {
 		return mappings
 	}

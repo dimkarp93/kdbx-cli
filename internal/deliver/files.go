@@ -9,7 +9,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
 	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 const firstExtraFD = 3
@@ -27,7 +27,7 @@ func RenderFiles(names []string, templates []config.Template, values map[string]
 		return nil, err
 	}
 
-	secrets := utils.Map(names, func(name string) fileContent {
+	secrets := collections.Map(names, func(name string) fileContent {
 		return fileContent{name: name, content: values[name]}
 	})
 	return slices.Concat(secrets, rendered), nil
@@ -76,12 +76,12 @@ func Placeholder(name string) string { return "{{" + name + "}}" }
 
 func SubstitutePlaceholders(args []string, paths map[string]string) ([]string, error) {
 	out := slices.Clone(args)
-	for _, name := range utils.SortedKeys(paths) {
+	for _, name := range collections.SortedKeys(paths) {
 		ph := Placeholder(name)
 		if !slices.ContainsFunc(out, func(a string) bool { return strings.Contains(a, ph) }) {
 			return nil, fmt.Errorf("placeholder %s for secret %q not found in the command", ph, name)
 		}
-		out = utils.Map(out, func(a string) string { return strings.ReplaceAll(a, ph, paths[name]) })
+		out = collections.Map(out, func(a string) string { return strings.ReplaceAll(a, ph, paths[name]) })
 	}
 	return out, nil
 }

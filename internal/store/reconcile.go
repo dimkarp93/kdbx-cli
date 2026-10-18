@@ -8,7 +8,7 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 	"github.com/dimkarp93/kdbx-cli/internal/term"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 type storeState struct {
@@ -37,7 +37,7 @@ func ReconcileStores(byStore map[string][]string, assumeYes bool, cache keyring.
 
 func gatherMissing(byStore map[string][]string, cache keyring.Cache) []storeState {
 	var states []storeState
-	for _, ks := range utils.SortedKeys(byStore) {
+	for _, ks := range collections.SortedKeys(byStore) {
 		titles := byStore[ks]
 		if len(titles) == 0 {
 			continue
@@ -65,7 +65,7 @@ func inspectStore(path string, titles []string, cache keyring.Cache) (storeState
 }
 
 func missingTitles(entries []keepass.Entry, titles []string) []string {
-	return utils.Filter(titles, func(title string) bool {
+	return collections.Filter(titles, func(title string) bool {
 		_, err := keepass.LookupSecret(entries, title)
 		return err != nil
 	})

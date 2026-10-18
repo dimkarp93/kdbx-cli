@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 const pathSeparator = string(os.PathSeparator)
@@ -22,7 +22,7 @@ func refreshPathSuggestions(ti *textinput.Model) {
 		return
 	}
 
-	ti.SetSuggestions(utils.Map(entries, func(e os.DirEntry) string { return suggestionPath(dir, e) }))
+	ti.SetSuggestions(collections.Map(entries, func(e os.DirEntry) string { return suggestionPath(dir, e) }))
 }
 
 func suggestionDir(value string) string {

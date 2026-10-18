@@ -5,7 +5,7 @@ import (
 
 	"github.com/dimkarp93/install-libs/pathreport"
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/utils"
+	"github.com/dimkarp93/utils/pkg/collections"
 )
 
 func pathEntries() []pathreport.Entry {
@@ -21,7 +21,7 @@ func pathEntries() []pathreport.Entry {
 
 func keyStoreEntries(cfg config.Config) []pathreport.Entry {
 	var entries []pathreport.Entry
-	for _, name := range utils.SortedKeys(cfg.Sections) {
+	for _, name := range collections.SortedKeys(cfg.Sections) {
 		section := cfg.Sections[name]
 		if section.KeyStore == "" {
 			continue
