@@ -2,6 +2,8 @@ package utils
 
 import (
 	"cmp"
+	"maps"
+	"slices"
 )
 
 func Filter[T any](items []T, keep func(T) bool) []T {
@@ -13,6 +15,7 @@ func Filter[T any](items []T, keep func(T) bool) []T {
 	}
 	return out
 }
+
 func Map[T, R any](items []T, fn func(T) R) []R {
 	out := make([]R, 0, len(items))
 	for _, item := range items {
@@ -20,6 +23,7 @@ func Map[T, R any](items []T, fn func(T) R) []R {
 	}
 	return out
 }
+
 func FlatMap[T, R any](items []T, fn func(T) []R) []R {
 	var out []R
 	for _, item := range items {
@@ -27,6 +31,7 @@ func FlatMap[T, R any](items []T, fn func(T) []R) []R {
 	}
 	return out
 }
+
 func Unique[T comparable](items []T) []T {
 	seen := make(map[T]struct{}, len(items))
 	out := make([]T, 0, len(items))
@@ -38,6 +43,7 @@ func Unique[T comparable](items []T) []T {
 	}
 	return out
 }
+
 func UniqueBy[T any, K comparable](items []T, key func(T) K) []T {
 	seen := make(map[K]struct{}, len(items))
 	out := make([]T, 0, len(items))
@@ -49,9 +55,16 @@ func UniqueBy[T any, K comparable](items []T, key func(T) K) []T {
 	}
 	return out
 }
+
 func GroupBy[T any, K comparable](items []T, key func(T) K) map[K][]T {
-	panic("not implemented")
+	out := make(map[K][]T)
+	for _, item := range items {
+		k := key(item)
+		out[k] = append(out[k], item)
+	}
+	return out
 }
+
 func ToSet[T comparable](items []T) map[T]bool {
 	out := make(map[T]bool, len(items))
 	for _, item := range items {
@@ -59,9 +72,11 @@ func ToSet[T comparable](items []T) map[T]bool {
 	}
 	return out
 }
+
 func SortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
-	panic("not implemented")
+	return slices.Sorted(maps.Keys(m))
 }
+
 func SortedUnique[T cmp.Ordered](items []T) []T {
-	panic("not implemented")
+	return slices.Compact(slices.Sorted(slices.Values(items)))
 }
