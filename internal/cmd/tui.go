@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 )
 
 type tuiMode int
@@ -35,7 +35,7 @@ type configTUI struct {
 	keyStore     textinput.Model
 	name         textinput.Model
 	env          textinput.Model
-	pairs        []domain.Mapping
+	pairs        []resolve.Mapping
 	cursor       int
 	mode         tuiMode
 	editIndex    int
@@ -47,7 +47,7 @@ type configTUI struct {
 	cacheFocus   int
 }
 
-func newConfigTUI(keyStore string, pairs []domain.Mapping, cacheConfig *config.CacheConfig) configTUI {
+func newConfigTUI(keyStore string, pairs []resolve.Mapping, cacheConfig *config.CacheConfig) configTUI {
 	ks := textinput.New()
 	ks.Prompt = ""
 	ks.Placeholder = "/path/to/store.kdbx"
@@ -324,11 +324,11 @@ func (m configTUI) commitEdit() (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.editIndex >= 0 {
-		m.pairs[m.editIndex] = domain.Mapping{Name: name, Env: env}
+		m.pairs[m.editIndex] = resolve.Mapping{Name: name, Env: env}
 	} else {
-		m.pairs = append(m.pairs, domain.Mapping{Name: name, Env: env})
+		m.pairs = append(m.pairs, resolve.Mapping{Name: name, Env: env})
 	}
-	domain.SortMappings(m.pairs)
+	resolve.SortMappings(m.pairs)
 	for i, p := range m.pairs {
 		if p.Name == name && p.Env == env {
 			m.cursor = i
@@ -435,7 +435,7 @@ func (m configTUI) legend() string {
 	return ""
 }
 
-func runConfigTUI(keyStore string, pairs []domain.Mapping, cacheConfig *config.CacheConfig) (string, []domain.Mapping, *config.CacheConfig, bool, error) {
+func runConfigTUI(keyStore string, pairs []resolve.Mapping, cacheConfig *config.CacheConfig) (string, []resolve.Mapping, *config.CacheConfig, bool, error) {
 	res, err := tea.NewProgram(newConfigTUI(keyStore, pairs, cacheConfig)).Run()
 	if err != nil {
 		return "", nil, nil, false, err

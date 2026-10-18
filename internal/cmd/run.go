@@ -10,10 +10,13 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
+	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 func cmdRun(flags runFlags, child []string) int {
@@ -32,8 +35,8 @@ func cmdRun(flags runFlags, child []string) int {
 	}
 
 	tool := filepath.Base(child[0])
-	res := domain.Resolve(cfg, tool, flags.overrides())
-	if err := domain.ValidateEnvNames(res.Secrets); err != nil {
+	res := resolve.Resolve(cfg, tool, flags.overrides())
+	if err := resolve.ValidateEnvNames(res.Secrets); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -65,11 +68,11 @@ func cmdRun(flags runFlags, child []string) int {
 
 	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, tool)
 	cache := keyring.New(cfg.Cache)
-	granted := domain.ConfiguredTitles(cfg, tool)
+	granted := utils.ToSet(resolve.ConfiguredTitles(cfg, tool))
 	for _, name := range cache.Granted(keyStore) {
 		granted[name] = true
 	}
-	out, _, err := domain.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
+	out, _, err := store.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -142,7 +145,7 @@ func cmdRun(flags runFlags, child []string) int {
 			extraFiles = append(extraFiles, f)
 		}
 		for _, t := range res.Templates {
-			rendered, err := domain.RenderTemplate(t.Path, values)
+			rendered, err := tmpl.Render(t.Path, values)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
@@ -303,7 +306,7 @@ func loadRunConfig(configPath string) (string, config.Config, error) {
 	return cfgPath, config.Config{}, err
 }
 
-func requestedTitles(res domain.Resolved) ([]string, error) {
+func requestedTitles(res resolve.Resolved) ([]string, error) {
 	titles := res.AllTitles()
 	tmplTitles, err := res.TemplateTitles()
 	if err != nil {

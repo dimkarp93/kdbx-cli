@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 )
 
 func TestLoadRunConfigMissingFile(t *testing.T) {
@@ -35,7 +35,7 @@ func TestLoadRunConfigInvalidFile(t *testing.T) {
 
 func TestRequestedTitlesMergesChannels(t *testing.T) {
 	tmpl := writeTestFile(t, filepath.Join(t.TempDir(), "t.txt"), "{{C}} and {{A}}")
-	res := domain.Resolved{
+	res := resolve.Resolved{
 		Secrets:   map[string]string{"X": "A"},
 		Stdin:     []string{"B"},
 		Templates: []config.Template{{Name: "t", Path: tmpl}},
@@ -48,7 +48,7 @@ func TestRequestedTitlesMergesChannels(t *testing.T) {
 }
 
 func TestRequestedTitlesTemplateError(t *testing.T) {
-	res := domain.Resolved{Templates: []config.Template{{Name: "t", Path: filepath.Join(t.TempDir(), "absent")}}}
+	res := resolve.Resolved{Templates: []config.Template{{Name: "t", Path: filepath.Join(t.TempDir(), "absent")}}}
 
 	_, err := requestedTitles(res)
 	assert.Error(t, err)

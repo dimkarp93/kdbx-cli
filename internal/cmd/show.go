@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
 	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
@@ -37,7 +37,7 @@ func cmdShow(path string) {
 		fmt.Fprintln(os.Stderr, "cannot load config", path+":", err)
 		os.Exit(1)
 	}
-	views := domain.BuildStoreViews(cfg)
+	views := store.BuildStoreViews(cfg)
 	cache := keyring.New(cfg.Cache)
 
 	if !term.IsInteractive() {
@@ -50,7 +50,7 @@ func cmdShow(path string) {
 	}
 }
 
-func printStoreViews(configPath string, cacheConfig *config.CacheConfig, views []domain.StoreView, cache keyring.Cache) {
+func printStoreViews(configPath string, cacheConfig *config.CacheConfig, views []store.StoreView, cache keyring.Cache) {
 	fmt.Println("Config:", configPath)
 	fmt.Println()
 	if cacheConfig == nil || !cacheConfig.Enabled {
@@ -116,14 +116,14 @@ func formatDuration(d time.Duration) string {
 type showTUI struct {
 	configPath  string
 	cacheConfig *config.CacheConfig
-	views       []domain.StoreView
+	views       []store.StoreView
 	cache       keyring.Cache
 	launch      launchFunc
 	cursor      int
 	status      string
 }
 
-func newShowTUI(configPath string, cacheConfig *config.CacheConfig, views []domain.StoreView, cache keyring.Cache, launch launchFunc) showTUI {
+func newShowTUI(configPath string, cacheConfig *config.CacheConfig, views []store.StoreView, cache keyring.Cache, launch launchFunc) showTUI {
 	return showTUI{configPath: configPath, cacheConfig: cacheConfig, views: views, cache: cache, launch: launch}
 }
 

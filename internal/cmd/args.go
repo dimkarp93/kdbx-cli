@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 )
 
 type runFlags struct {
@@ -201,8 +201,8 @@ func splitTitles(spec string) []string {
 	return out
 }
 
-func (f runFlags) overrides() domain.Overrides {
-	return domain.Overrides{
+func (f runFlags) overrides() resolve.Overrides {
+	return resolve.Overrides{
 		KeyStore:      f.keyStore,
 		Secrets:       f.secrets,
 		Stdin:         f.stdin,

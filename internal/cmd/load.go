@@ -7,9 +7,10 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
 )
 
 func cmdLoad(flags runFlags) int {
@@ -30,7 +31,7 @@ func cmdLoad(flags runFlags) int {
 		return 1
 	}
 
-	res := domain.Resolve(cfg, "", flags.overrides())
+	res := resolve.Resolve(cfg, "", flags.overrides())
 	if res.KeyStore == "" {
 		fmt.Fprintln(os.Stderr, "no key-store configured: set it in", cfgPath, "or pass --key-store")
 		return 1
@@ -52,7 +53,7 @@ func cmdLoad(flags runFlags) int {
 	}
 
 	prompt := fmt.Sprintf("Enter password for %s to load %d title(s): ", keyStore, len(titles))
-	out, pw, err := domain.UnlockExport(keyStore, cache, prompt, false)
+	out, pw, err := store.UnlockExport(keyStore, cache, prompt, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

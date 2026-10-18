@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
 	"github.com/dimkarp93/kdbx-cli/internal/term"
 )
 
@@ -25,7 +26,7 @@ func cmdConfig(path string, assumeYes bool) {
 		cfg.Sections = map[string]config.Section{}
 	}
 	def := cfg.Sections["default"]
-	pairs := domain.MappingsFromMap(def.Secrets)
+	pairs := resolve.MappingsFromMap(def.Secrets)
 
 	var keyStore string
 	var canceled bool
@@ -48,7 +49,7 @@ func cmdConfig(path string, assumeYes bool) {
 	}
 
 	def.KeyStore = keyStore
-	def.Secrets = domain.MappingsToMap(pairs)
+	def.Secrets = resolve.MappingsToMap(pairs)
 	cfg.Sections["default"] = def
 	cfg.Cache = newCache
 
@@ -60,7 +61,7 @@ func cmdConfig(path string, assumeYes bool) {
 
 	if keyStore != "" && len(pairs) > 0 {
 		fmt.Println()
-		domain.ReconcileStores(map[string][]string{config.ExpandHome(keyStore): titlesOf(pairs)}, assumeYes, keyring.New(cfg.Cache))
+		store.ReconcileStores(map[string][]string{config.ExpandHome(keyStore): titlesOf(pairs)}, assumeYes, keyring.New(cfg.Cache))
 	}
 }
 
@@ -73,12 +74,12 @@ func cmdCheck(path string, assumeYes bool) {
 		fmt.Fprintln(os.Stderr, "cannot load config", path+":", err)
 		os.Exit(1)
 	}
-	byStore := domain.AggregateStores(cfg)
+	byStore := store.AggregateStores(cfg)
 	if len(byStore) == 0 {
 		fmt.Println("No secrets configured in", path)
 		return
 	}
-	domain.ReconcileStores(byStore, assumeYes, keyring.New(cfg.Cache))
+	store.ReconcileStores(byStore, assumeYes, keyring.New(cfg.Cache))
 }
 
 func cmdForget(path string) {
@@ -94,7 +95,7 @@ func cmdForget(path string) {
 	fmt.Printf("Forgot %d cached key-store password(s)\n", n)
 }
 
-func titlesOf(pairs []domain.Mapping) []string {
+func titlesOf(pairs []resolve.Mapping) []string {
 	titles := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		titles = append(titles, p.Name)
@@ -103,7 +104,7 @@ func titlesOf(pairs []domain.Mapping) []string {
 	return titles
 }
 
-func configFallback(keyStore string, pairs []domain.Mapping) (string, []domain.Mapping) {
+func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve.Mapping) {
 	fmt.Println("Configure the default section (Enter to keep the current value).")
 	fmt.Println()
 
@@ -112,17 +113,17 @@ func configFallback(keyStore string, pairs []domain.Mapping) (string, []domain.M
 	fmt.Println()
 
 	fmt.Println("  # secrets mapping: name:env,name:env (name = entry Title in the .kdbx)")
-	spec := term.ReadWithPrefill("  secrets", formatSecrets(domain.MappingsToMap(pairs)))
+	spec := term.ReadWithPrefill("  secrets", formatSecrets(resolve.MappingsToMap(pairs)))
 	m := map[string]string{}
 	if err := mergeSecretsFlag(m, spec); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	return keyStore, domain.MappingsFromMap(m)
+	return keyStore, resolve.MappingsFromMap(m)
 }
 
 func formatSecrets(envToName map[string]string) string {
-	pairs := domain.MappingsFromMap(envToName)
+	pairs := resolve.MappingsFromMap(envToName)
 	parts := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		parts = append(parts, p.Name+":"+p.Env)

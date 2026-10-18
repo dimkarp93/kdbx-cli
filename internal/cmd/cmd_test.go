@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
 )
 
 func writeTestFile(t *testing.T, path, content string) string {
@@ -240,7 +241,7 @@ func TestShellQuote(t *testing.T) {
 
 func TestPrintPlanShowsTemplatesBlock(t *testing.T) {
 	tmplPath := writeTestFile(t, filepath.Join(t.TempDir(), "settings.json"), `{"password":"{{AdminPw}}"}`)
-	res := domain.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
+	res := resolve.Resolved{Templates: []config.Template{{Name: "cfg", Path: tmplPath}}}
 
 	out := captureStdout(t, func() {
 		printPlan("/cfg", "admin", config.Config{}, res, runFlags{}, []string{"admin", "{{cfg}}"})
@@ -293,7 +294,7 @@ func TestDeleteLastPathSegment(t *testing.T) {
 	}
 }
 
-func commitNewPair(pairs []domain.Mapping, name, env string) configTUI {
+func commitNewPair(pairs []resolve.Mapping, name, env string) configTUI {
 	m := newConfigTUI("", pairs, nil)
 	m.mode = modeEdit
 	m.editIndex = -1
@@ -305,10 +306,10 @@ func commitNewPair(pairs []domain.Mapping, name, env string) configTUI {
 }
 
 func TestCommitEditAddsSorted(t *testing.T) {
-	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "A", "1")
+	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "A", "1")
 
 	t.Run("sorted by name", func(t *testing.T) {
-		assert.Equal(t, []domain.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, m.pairs)
+		assert.Equal(t, []resolve.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, m.pairs)
 	})
 	t.Run("cursor on committed pair", func(t *testing.T) {
 		assert.Equal(t, 0, m.cursor)
@@ -316,7 +317,7 @@ func TestCommitEditAddsSorted(t *testing.T) {
 }
 
 func TestCommitEditRejectsDuplicateEnv(t *testing.T) {
-	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "C", "2")
+	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "C", "2")
 
 	t.Run("reports error", func(t *testing.T) {
 		assert.NotEmpty(t, m.err)
@@ -325,12 +326,12 @@ func TestCommitEditRejectsDuplicateEnv(t *testing.T) {
 		assert.Equal(t, modeEdit, m.mode)
 	})
 	t.Run("keeps pairs", func(t *testing.T) {
-		assert.Equal(t, []domain.Mapping{{Name: "B", Env: "2"}}, m.pairs)
+		assert.Equal(t, []resolve.Mapping{{Name: "B", Env: "2"}}, m.pairs)
 	})
 }
 
 func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
-	m := commitNewPair([]domain.Mapping{{Name: "B", Env: "2"}}, "B", "9")
+	m := commitNewPair([]resolve.Mapping{{Name: "B", Env: "2"}}, "B", "9")
 
 	t.Run("no error", func(t *testing.T) {
 		assert.Empty(t, m.err)
@@ -340,7 +341,7 @@ func TestCommitEditAllowsSameSecretWithAnotherEnv(t *testing.T) {
 	})
 	t.Run("cursor on new pair", func(t *testing.T) {
 		require.Less(t, m.cursor, len(m.pairs))
-		assert.Equal(t, domain.Mapping{Name: "B", Env: "9"}, m.pairs[m.cursor])
+		assert.Equal(t, resolve.Mapping{Name: "B", Env: "9"}, m.pairs[m.cursor])
 	})
 }
 
@@ -356,7 +357,7 @@ func TestCommitEditRequiresBothFields(t *testing.T) {
 }
 
 func TestListDeleteAdjustsCursor(t *testing.T) {
-	m := newConfigTUI("", []domain.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, nil)
+	m := newConfigTUI("", []resolve.Mapping{{Name: "A", Env: "1"}, {Name: "B", Env: "2"}}, nil)
 	m.mode = modeList
 	m.cursor = 1
 
@@ -364,7 +365,7 @@ func TestListDeleteAdjustsCursor(t *testing.T) {
 	m = res.(configTUI)
 
 	t.Run("removes selected pair", func(t *testing.T) {
-		assert.Equal(t, []domain.Mapping{{Name: "A", Env: "1"}}, m.pairs)
+		assert.Equal(t, []resolve.Mapping{{Name: "A", Env: "1"}}, m.pairs)
 	})
 	t.Run("clamps cursor", func(t *testing.T) {
 		assert.Equal(t, 0, m.cursor)
@@ -382,7 +383,7 @@ func (l *recordingLauncher) launch(path string) error {
 }
 
 func newTwoStoreShowTUI(launch launchFunc) showTUI {
-	views := []domain.StoreView{
+	views := []store.StoreView{
 		{Path: "/a.kdbx", Exists: true},
 		{Path: "/b.kdbx", Exists: false},
 	}

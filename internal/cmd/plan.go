@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
+	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
 )
 
 type envSecret struct {
@@ -82,7 +83,7 @@ func templateNames(templates []config.Template) []string {
 	return out
 }
 
-func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, flags runFlags, child []string) {
+func printPlan(cfgPath, tool string, cfg config.Config, res resolve.Resolved, flags runFlags, child []string) {
 	out := os.Stdout
 	fmt.Fprintln(out, "Dry run — the command will NOT be executed.")
 	fmt.Fprintln(out)
@@ -146,7 +147,7 @@ func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, fla
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Templates (placeholder ← rendered file):")
 		for _, t := range res.Templates {
-			titles, err := domain.TemplateTitles(t.Path)
+			titles, err := tmpl.Titles(t.Path)
 			if err != nil {
 				fmt.Fprintf(out, "  %s ← %s  (template file not found)\n", placeholder(t.Name), t.Path)
 				continue
