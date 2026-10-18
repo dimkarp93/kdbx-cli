@@ -1,9 +1,13 @@
 package deliver
 
 import (
+	"fmt"
 	"github.com/dimkarp93/kdbx-cli/internal/config"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 	"os"
+	"slices"
+	"strings"
 )
 
 const firstExtraFD = 3
@@ -30,8 +34,20 @@ func CloseFiles(files []*os.File) {
 	panic("not implemented")
 }
 func Placeholder(name string) string {
-	panic("not implemented")
+	return "{{" + name + "}}"
 }
 func SubstitutePlaceholders(args []string, paths map[string]string) ([]string, error) {
-	panic("not implemented")
+	out := slices.Clone(args)
+	for _, name := range utils.SortedKeys(paths) {
+		ph := Placeholder(name)
+		if !slices.ContainsFunc(out, func(a string) bool {
+			return strings.Contains(a, ph)
+		}) {
+			return nil, fmt.Errorf("placeholder %s for secret %q not found in the command", ph, name)
+		}
+		out = utils.Map(out, func(a string) string {
+			return strings.ReplaceAll(a, ph, paths[name])
+		})
+	}
+	return out, nil
 }
