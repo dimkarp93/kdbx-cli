@@ -113,7 +113,7 @@ func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve
 	fmt.Println()
 
 	fmt.Println("  # secrets mapping: name:env,name:env (name = entry Title in the .kdbx)")
-	spec := term.ReadWithPrefill("  secrets", formatSecrets(resolve.MappingsToMap(pairs)))
+	spec := term.ReadWithPrefill("  secrets", formatSecrets(pairs))
 	m := map[string]string{}
 	if err := mergeSecretsFlag(m, spec); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -122,8 +122,7 @@ func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve
 	return keyStore, resolve.MappingsFromMap(m)
 }
 
-func formatSecrets(envToName map[string]string) string {
-	pairs := resolve.MappingsFromMap(envToName)
+func formatSecrets(pairs []resolve.Mapping) string {
 	parts := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		parts = append(parts, p.Name+":"+p.Env)
