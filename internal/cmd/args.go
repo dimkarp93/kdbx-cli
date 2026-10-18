@@ -78,10 +78,10 @@ func parseRunFlags(args []string) (runFlags, error) {
 			if err != nil {
 				return f, err
 			}
-			f.stdin = append(f.stdin, splitTitles(v)...)
+			f.stdin = append(f.stdin, splitList(v)...)
 			i++
 		case strings.HasPrefix(a, "--stdin="):
-			f.stdin = append(f.stdin, splitTitles(strings.TrimPrefix(a, "--stdin="))...)
+			f.stdin = append(f.stdin, splitList(strings.TrimPrefix(a, "--stdin="))...)
 		case a == "--stdin-keep-open":
 			f.stdinKeepOpen = true
 		case a == "--secret-file":
@@ -89,10 +89,10 @@ func parseRunFlags(args []string) (runFlags, error) {
 			if err != nil {
 				return f, err
 			}
-			f.files = append(f.files, splitTitles(v)...)
+			f.files = append(f.files, splitList(v)...)
 			i++
 		case strings.HasPrefix(a, "--secret-file="):
-			f.files = append(f.files, splitTitles(strings.TrimPrefix(a, "--secret-file="))...)
+			f.files = append(f.files, splitList(strings.TrimPrefix(a, "--secret-file="))...)
 		case a == "--template":
 			v, err := needValue(i)
 			if err != nil {
@@ -191,7 +191,7 @@ func parseAskpassReads(v string) (int, error) {
 	return n, nil
 }
 
-func splitTitles(spec string) []string {
+func splitList(spec string) []string {
 	var out []string
 	for _, part := range strings.Split(spec, ",") {
 		if part = strings.TrimSpace(part); part != "" {
