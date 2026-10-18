@@ -369,11 +369,6 @@ func TestListDeleteAdjustsCursor(t *testing.T) {
 	})
 }
 
-type recordingLauncher struct {
-	opened string
-	err    error
-}
-
 func TestTitlesGranted(t *testing.T) {
 	granted := map[string]bool{"A": true, "B": true}
 

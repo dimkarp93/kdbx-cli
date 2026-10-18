@@ -35,15 +35,3 @@ func cmdShow(path string) {
 		os.Exit(1)
 	}
 }
-
-type launchFunc func(path string) error
-
-type showTUI struct {
-	configPath  string
-	cacheConfig *config.CacheConfig
-	views       []store.StoreView
-	cache       keyring.Cache
-	launch      launchFunc
-	cursor      int
-	status      string
-}
