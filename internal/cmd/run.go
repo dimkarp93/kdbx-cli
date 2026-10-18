@@ -1,21 +1,21 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
+	"slices"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/deliver"
 	"github.com/dimkarp93/kdbx-cli/internal/keepass"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
 	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
 	"github.com/dimkarp93/kdbx-cli/internal/store"
-	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
 	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
@@ -35,258 +35,85 @@ func cmdRun(flags runFlags, child []string) int {
 		keepass.CheckEngine()
 	}
 
-	cfgPath, cfg, err := loadRunConfig(flags.configPath)
+	plan, err := resolveRun(flags, child)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	if flags.dryRun {
+		printPlan(plan, flags, child)
+		return 0
+	}
+
+	values, err := fetchSecrets(plan)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return runChild(plan.res, values, child)
+}
+
+func resolveRun(flags runFlags, child []string) (runPlan, error) {
+	cfgPath, cfg, err := loadRunConfig(flags.configPath)
+	if err != nil {
+		return runPlan{}, err
 	}
 
 	tool := filepath.Base(child[0])
 	res := resolve.Resolve(cfg, tool, flags.overrides())
 	if err := resolve.ValidateEnvNames(res.Secrets); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return runPlan{}, err
 	}
+	return runPlan{cfgPath: cfgPath, tool: tool, cfg: cfg, res: res}, nil
+}
 
-	if flags.dryRun {
-		printPlan(runPlan{cfgPath: cfgPath, tool: tool, cfg: cfg, res: res}, flags, child)
-		return 0
-	}
-
-	if res.KeyStore == "" {
-		fmt.Fprintln(os.Stderr, "no key-store configured: set it in", cfgPath, "or pass --key-store")
-		return 1
-	}
-	titles, err := requestedTitles(res)
+func fetchSecrets(plan runPlan) (map[string]string, error) {
+	titles, err := runTitles(plan.cfgPath, plan.tool, plan.res)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return nil, err
 	}
-	if len(titles) == 0 {
-		fmt.Fprintf(os.Stderr, "no secrets configured for %q in %s (or via flags)\n", tool, cfgPath)
-		return 1
-	}
-
-	keyStore := config.ExpandHome(res.KeyStore)
-	if _, err := os.Stat(keyStore); err != nil {
-		fmt.Fprintln(os.Stderr, "key-store not found:", keyStore)
-		return 1
+	keyStore, err := existingKeyStore(plan.res.KeyStore)
+	if err != nil {
+		return nil, err
 	}
 
-	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, tool)
-	cache := keyring.New(cfg.Cache)
-	granted := utils.ToSet(resolve.ConfiguredTitles(cfg, tool))
-	for _, name := range cache.Granted(keyStore) {
-		granted[name] = true
-	}
+	prompt := fmt.Sprintf("Enter password for %s to run %s: ", keyStore, plan.tool)
+	cache := keyring.New(plan.cfg.Cache)
+	granted := utils.ToSet(slices.Concat(resolve.ConfiguredTitles(plan.cfg, plan.tool), cache.Granted(keyStore)))
 	out, _, err := store.UnlockExport(keyStore, cache, prompt, titlesGranted(titles, granted))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return nil, err
 	}
 
-	entries, err := keepass.ParseSecrets(out)
+	return lookupRunSecrets(out, titles)
+}
+
+func runTitles(cfgPath, tool string, res resolve.Resolved) ([]string, error) {
+	if res.KeyStore == "" {
+		return nil, errNoKeyStore(cfgPath)
+	}
+
+	titles, err := requestedTitles(res)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cannot parse key-store:", err)
-		return 1
+		return nil, err
+	}
+	if len(titles) == 0 {
+		return nil, fmt.Errorf("no secrets configured for %q in %s (or via flags)", tool, cfgPath)
+	}
+	return titles, nil
+}
+
+func lookupRunSecrets(export string, titles []string) (map[string]string, error) {
+	entries, err := parseEntries(export)
+	if err != nil {
+		return nil, err
 	}
 
-	sort.Strings(titles)
-	values := make(map[string]string, len(titles))
-	var failures []string
-	for _, name := range titles {
-		val, err := keepass.LookupSecret(entries, name)
-		if err != nil {
-			failures = append(failures, err.Error())
-			continue
-		}
-		values[name] = val
-	}
+	values, failures := lookupAll(entries, slices.Sorted(slices.Values(titles)))
 	if len(failures) > 0 {
-		fmt.Fprintln(os.Stderr, "cannot resolve secrets:")
-		for _, f := range failures {
-			fmt.Fprintln(os.Stderr, "  "+f)
-		}
-		return 1
+		return nil, failuresError("cannot resolve secrets:", failures)
 	}
-
-	envNames := make([]string, 0, len(res.Secrets))
-	for n := range res.Secrets {
-		envNames = append(envNames, n)
-	}
-	sort.Strings(envNames)
-	env := inheritedEnv(os.Environ())
-	for _, name := range envNames {
-		env = append(env, name+"="+values[res.Secrets[name]])
-	}
-
-	stdin := io.Reader(os.Stdin)
-	if len(res.Stdin) > 0 {
-		payload, err := stdinPayload(res.Stdin, values)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if res.StdinKeepOpen {
-			stdin = io.MultiReader(strings.NewReader(payload), os.Stdin)
-		} else {
-			stdin = strings.NewReader(payload)
-		}
-	}
-
-	args := child
-	var extraFiles []*os.File
-	if len(res.Files) > 0 || len(res.Templates) > 0 || res.Askpass != "" {
-		pipes := secretpipe.NewSet()
-		defer pipes.Close()
-
-		paths := make(map[string]string, len(res.Files)+len(res.Templates))
-		for _, name := range res.Files {
-			f, err := pipes.File(name, values[name])
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			defer f.Close()
-			paths[name] = fmt.Sprintf("/dev/fd/%d", firstExtraFD+len(extraFiles))
-			extraFiles = append(extraFiles, f)
-		}
-		for _, t := range res.Templates {
-			rendered, err := tmpl.Render(t.Path, values)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			f, err := pipes.File(t.Name, string(rendered))
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			defer f.Close()
-			paths[t.Name] = fmt.Sprintf("/dev/fd/%d", firstExtraFD+len(extraFiles))
-			extraFiles = append(extraFiles, f)
-		}
-		args, err = substitutePlaceholders(child, paths)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-
-		if res.Askpass != "" {
-			script, err := pipes.Askpass(res.Askpass, values[res.Askpass], res.AskpassReads)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-			env = withAskpass(env, script)
-		}
-	}
-
-	bin, err := exec.LookPath(args[0])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "command not found:", args[0])
-		return 127
-	}
-	cmd := exec.Command(bin, args[1:]...)
-	cmd.Env = env
-	cmd.Stdin = stdin
-	cmd.ExtraFiles = extraFiles
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode()
-		}
-		fmt.Fprintln(os.Stderr, "command failed:", err)
-		return 1
-	}
-	return 0
-}
-
-const firstExtraFD = 3
-
-const passwordEnv = "KDBX_CLI_PASSWORD"
-
-func inheritedEnv(environ []string) []string {
-	out := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k != passwordEnv {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
-
-func stdinPayload(names []string, values map[string]string) (string, error) {
-	var b strings.Builder
-	for _, name := range names {
-		v := values[name]
-		if strings.ContainsAny(v, "\r\n") {
-			return "", fmt.Errorf("secret %q contains a newline and cannot be sent over stdin", name)
-		}
-		b.WriteString(v)
-		b.WriteByte('\n')
-	}
-	return b.String(), nil
-}
-
-func placeholder(name string) string { return "{{" + name + "}}" }
-
-func substitutePlaceholders(args []string, paths map[string]string) ([]string, error) {
-	out := append([]string{}, args...)
-	names := make([]string, 0, len(paths))
-	for name := range paths {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		ph := placeholder(name)
-		found := false
-		for i, a := range out {
-			if strings.Contains(a, ph) {
-				out[i] = strings.ReplaceAll(a, ph, paths[name])
-				found = true
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("placeholder %s for secret %q not found in the command", ph, name)
-		}
-	}
-	return out, nil
-}
-
-var askpassEnv = []string{
-	"SSH_ASKPASS",
-	"SUDO_ASKPASS",
-	"GIT_ASKPASS",
-	"RESTIC_PASSWORD_COMMAND",
-	"BORG_PASSCOMMAND",
-}
-
-func withAskpass(env []string, script string) []string {
-	set := map[string]string{
-		"SSH_ASKPASS_REQUIRE": "force",
-		"GIT_TERMINAL_PROMPT": "0",
-	}
-	for _, k := range askpassEnv {
-		set[k] = script
-	}
-	out := make([]string, 0, len(env)+len(set))
-	for _, kv := range env {
-		k, _, _ := strings.Cut(kv, "=")
-		if _, override := set[k]; !override {
-			out = append(out, kv)
-		}
-	}
-	keys := make([]string, 0, len(set))
-	for k := range set {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		out = append(out, k+"="+set[k])
-	}
-	return out
+	return values, nil
 }
 
 type childSpec struct {
@@ -294,4 +121,100 @@ type childSpec struct {
 	env        []string
 	stdin      io.Reader
 	extraFiles []*os.File
+}
+
+func runChild(res resolve.Resolved, values map[string]string, child []string) int {
+	pipes := secretpipe.NewSet()
+	defer pipes.Close()
+
+	spec, err := prepareChild(pipes, res, values, child)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer deliver.CloseFiles(spec.extraFiles)
+
+	return execChild(spec)
+}
+
+func prepareChild(pipes *secretpipe.Set, res resolve.Resolved, values map[string]string, child []string) (childSpec, error) {
+	stdin, err := deliver.Stdin(res.Stdin, res.StdinKeepOpen, values, os.Stdin)
+	if err != nil {
+		return childSpec{}, err
+	}
+
+	files, err := deliver.RenderFiles(res.Files, res.Templates, values)
+	if err != nil {
+		return childSpec{}, err
+	}
+	args, err := deliver.SubstitutePlaceholders(child, files.Paths())
+	if err != nil {
+		return childSpec{}, err
+	}
+
+	env, err := childEnv(pipes, res, values)
+	if err != nil {
+		return childSpec{}, err
+	}
+
+	extraFiles, err := files.Open(pipes)
+	if err != nil {
+		return childSpec{}, err
+	}
+	return childSpec{args: args, env: env, stdin: stdin, extraFiles: extraFiles}, nil
+}
+
+func childEnv(pipes *secretpipe.Set, res resolve.Resolved, values map[string]string) ([]string, error) {
+	env := slices.Concat(deliver.InheritedEnv(os.Environ()), deliver.SecretEnv(res.Secrets, values))
+	if res.Askpass == "" {
+		return env, nil
+	}
+
+	script, err := pipes.Askpass(res.Askpass, values[res.Askpass], res.AskpassReads)
+	if err != nil {
+		return nil, err
+	}
+	return deliver.WithAskpass(env, script), nil
+}
+
+func execChild(spec childSpec) int {
+	bin, err := exec.LookPath(spec.args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "command not found:", spec.args[0])
+		return 127
+	}
+
+	cmd := exec.Command(bin, spec.args[1:]...)
+	cmd.Env = spec.env
+	cmd.Stdin = spec.stdin
+	cmd.ExtraFiles = spec.extraFiles
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return exitCode(cmd.Run())
+}
+
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	fmt.Fprintln(os.Stderr, "command failed:", err)
+	return 1
+}
+
+const firstExtraFD = 3
+
+const passwordEnv = "KDBX_CLI_PASSWORD"
+
+var askpassEnv = []string{
+	"SSH_ASKPASS",
+	"SUDO_ASKPASS",
+	"GIT_ASKPASS",
+	"RESTIC_PASSWORD_COMMAND",
+	"BORG_PASSCOMMAND",
 }

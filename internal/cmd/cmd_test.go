@@ -442,64 +442,6 @@ func TestShowTUIEnterReportsLaunchError(t *testing.T) {
 	assert.Equal(t, "✗ keepassxc GUI not found in PATH", m.status)
 }
 
-func TestStdinPayload(t *testing.T) {
-	got, err := stdinPayload([]string{"pw", "pw"}, map[string]string{"pw": "s3cret"})
-	require.NoError(t, err)
-	assert.Equal(t, "s3cret\ns3cret\n", got)
-}
-
-func TestStdinPayloadRejectsMultilineSecret(t *testing.T) {
-	_, err := stdinPayload([]string{"pw"}, map[string]string{"pw": "a\nb"})
-	assert.Error(t, err)
-}
-
-func TestSubstitutePlaceholders(t *testing.T) {
-	args := []string{"restic", "--password-file", "{{repo pw}}", "--other=x{{repo pw}}x"}
-
-	got, err := substitutePlaceholders(args, map[string]string{"repo pw": "/run/fifo"})
-
-	t.Run("succeeds", func(t *testing.T) {
-		require.NoError(t, err)
-	})
-	t.Run("substitutes whole and embedded placeholders", func(t *testing.T) {
-		assert.Equal(t, []string{"restic", "--password-file", "/run/fifo", "--other=x/run/fifox"}, got)
-	})
-	t.Run("does not mutate input", func(t *testing.T) {
-		assert.Equal(t, "{{repo pw}}", args[2])
-	})
-}
-
-func TestSubstitutePlaceholdersMissingPlaceholder(t *testing.T) {
-	_, err := substitutePlaceholders([]string{"restic"}, map[string]string{"pw": "/run/fifo"})
-	assert.Error(t, err)
-}
-
-func TestWithAskpass(t *testing.T) {
-	env := withAskpass([]string{"PATH=/bin", "SSH_ASKPASS=/old", "HOME=/h"}, "/tmp/askpass.sh")
-
-	t.Run("replaces existing askpass", func(t *testing.T) {
-		assert.NotContains(t, env, "SSH_ASKPASS=/old")
-	})
-	t.Run("keeps unrelated variables", func(t *testing.T) {
-		assert.Subset(t, env, []string{"PATH=/bin", "HOME=/h"})
-	})
-	t.Run("points helpers at script", func(t *testing.T) {
-		assert.Subset(t, env, []string{
-			"SSH_ASKPASS=/tmp/askpass.sh", "SUDO_ASKPASS=/tmp/askpass.sh",
-			"GIT_ASKPASS=/tmp/askpass.sh", "RESTIC_PASSWORD_COMMAND=/tmp/askpass.sh",
-			"BORG_PASSCOMMAND=/tmp/askpass.sh",
-		})
-	})
-	t.Run("forces askpass and disables prompts", func(t *testing.T) {
-		assert.Subset(t, env, []string{"SSH_ASKPASS_REQUIRE=force", "GIT_TERMINAL_PROMPT=0"})
-	})
-}
-
-func TestChildEnvDropsPassword(t *testing.T) {
-	got := inheritedEnv([]string{"A=1", "KDBX_CLI_PASSWORD=secret", "KDBX_CLI_PASSWORD_X=keep", "B=2"})
-	assert.Equal(t, []string{"A=1", "KDBX_CLI_PASSWORD_X=keep", "B=2"}, got)
-}
-
 func TestTitlesGranted(t *testing.T) {
 	granted := map[string]bool{"A": true, "B": true}
 
