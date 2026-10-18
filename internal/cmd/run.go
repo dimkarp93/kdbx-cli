@@ -196,15 +196,6 @@ func cmdRun(flags runFlags, child []string) int {
 	return 0
 }
 
-func titlesGranted(titles []string, granted map[string]bool) bool {
-	for _, name := range titles {
-		if !granted[name] {
-			return false
-		}
-	}
-	return true
-}
-
 const firstExtraFD = 3
 
 const passwordEnv = "KDBX_CLI_PASSWORD"
@@ -289,38 +280,4 @@ func withAskpass(env []string, script string) []string {
 		out = append(out, k+"="+set[k])
 	}
 	return out
-}
-
-func loadRunConfig(configPath string) (string, config.Config, error) {
-	cfgPath := configPath
-	if cfgPath == "" {
-		cfgPath = config.DefaultPath()
-	}
-	cfg, err := config.Load(cfgPath)
-	if err == nil {
-		return cfgPath, cfg, nil
-	}
-	if os.IsNotExist(err) {
-		return cfgPath, config.Config{}, nil
-	}
-	return cfgPath, config.Config{}, err
-}
-
-func requestedTitles(res resolve.Resolved) ([]string, error) {
-	titles := res.AllTitles()
-	tmplTitles, err := res.TemplateTitles()
-	if err != nil {
-		return nil, err
-	}
-	seen := make(map[string]bool, len(titles))
-	for _, name := range titles {
-		seen[name] = true
-	}
-	for _, name := range tmplTitles {
-		if !seen[name] {
-			seen[name] = true
-			titles = append(titles, name)
-		}
-	}
-	return titles, nil
 }
