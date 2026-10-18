@@ -12,21 +12,16 @@ import (
 	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
 )
 
-type envSecret struct {
-	env  string
-	name string
-}
-
-func sortedMappings(secrets map[string]string) []envSecret {
-	out := make([]envSecret, 0, len(secrets))
+func sortedMappings(secrets map[string]string) []resolve.Mapping {
+	out := make([]resolve.Mapping, 0, len(secrets))
 	for env, name := range secrets {
-		out = append(out, envSecret{env: env, name: name})
+		out = append(out, resolve.Mapping{Env: env, Name: name})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].env != out[j].env {
-			return out[i].env < out[j].env
+		if out[i].Env != out[j].Env {
+			return out[i].Env < out[j].Env
 		}
-		return out[i].name < out[j].name
+		return out[i].Name < out[j].Name
 	})
 	return out
 }
@@ -61,10 +56,10 @@ func shellQuote(s string) string {
 	return s
 }
 
-func renderCommand(mappings []envSecret, files []string, child []string) string {
+func renderCommand(mappings []resolve.Mapping, files []string, child []string) string {
 	parts := make([]string, 0, len(mappings)+len(child))
 	for _, m := range mappings {
-		parts = append(parts, fmt.Sprintf("%s=<secret from %s>", m.env, m.name))
+		parts = append(parts, fmt.Sprintf("%s=<secret from %s>", m.Env, m.Name))
 	}
 	for _, a := range child {
 		for _, name := range files {
@@ -113,12 +108,12 @@ func printPlan(cfgPath, tool string, cfg config.Config, res resolve.Resolved, fl
 		fmt.Fprintln(out, "Mappings (env ← secret):")
 		w := 0
 		for _, m := range mappings {
-			if len(m.env) > w {
-				w = len(m.env)
+			if len(m.Env) > w {
+				w = len(m.Env)
 			}
 		}
 		for _, m := range mappings {
-			fmt.Fprintf(out, "  %-*s ← %s\n", w, m.env, m.name)
+			fmt.Fprintf(out, "  %-*s ← %s\n", w, m.Env, m.Name)
 		}
 	}
 
