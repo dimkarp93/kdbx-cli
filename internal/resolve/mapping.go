@@ -1,10 +1,14 @@
-package domain
+package resolve
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 type Mapping struct {
@@ -12,13 +16,12 @@ type Mapping struct {
 	Env  string
 }
 
+func compareMappings(a, b Mapping) int {
+	return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.Env, b.Env))
+}
+
 func SortMappings(pairs []Mapping) {
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].Name != pairs[j].Name {
-			return pairs[i].Name < pairs[j].Name
-		}
-		return pairs[i].Env < pairs[j].Env
-	})
+	slices.SortFunc(pairs, compareMappings)
 }
 
 func MappingsFromMap(envToName map[string]string) []Mapping {
@@ -38,25 +41,22 @@ func MappingsToMap(pairs []Mapping) map[string]string {
 	return m
 }
 
+func MappingName(m Mapping) string {
+	return m.Name
+}
+
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+func isInvalidEnvName(env string) bool {
+	return !envNamePattern.MatchString(env)
+}
+
 func ValidateEnvNames(envToName map[string]string) error {
-	var invalid []string
-	for env := range envToName {
-		if !envNamePattern.MatchString(env) {
-			invalid = append(invalid, fmt.Sprintf("%q", env))
-		}
-	}
+	invalid := utils.Map(utils.Filter(utils.SortedKeys(envToName), isInvalidEnvName), strconv.Quote)
 	if len(invalid) == 0 {
 		return nil
 	}
-	sort.Strings(invalid)
+
+	slices.Sort(invalid)
 	return fmt.Errorf("invalid env variable name(s): %s", strings.Join(invalid, ", "))
 }
-
-const (
-	ChannelStdin    = "(stdin)"
-	ChannelFile     = "(file)"
-	ChannelTemplate = "(template)"
-	ChannelAskpass  = "(askpass)"
-)

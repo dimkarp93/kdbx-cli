@@ -1,33 +1,27 @@
 package cmd
 
 import (
+	"cmp"
 	"fmt"
+	"io"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
+	"github.com/dimkarp93/kdbx-cli/internal/deliver"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
 	"github.com/dimkarp93/kdbx-cli/internal/secretpipe"
+	"github.com/dimkarp93/kdbx-cli/internal/tmpl"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
-type envSecret struct {
-	env  string
-	name string
-}
-
-func sortedMappings(secrets map[string]string) []envSecret {
-	out := make([]envSecret, 0, len(secrets))
-	for env, name := range secrets {
-		out = append(out, envSecret{env: env, name: name})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].env != out[j].env {
-			return out[i].env < out[j].env
-		}
-		return out[i].name < out[j].name
+func sortedMappings(secrets map[string]string) []resolve.Mapping {
+	pairs := resolve.MappingsFromMap(secrets)
+	slices.SortFunc(pairs, func(a, b resolve.Mapping) int {
+		return cmp.Or(cmp.Compare(a.Env, b.Env), cmp.Compare(a.Name, b.Name))
 	})
-	return out
+	return pairs
 }
 
 func describeSection(cfg config.Config, tool string) string {
@@ -47,127 +41,148 @@ func describeSection(cfg config.Config, tool string) string {
 	}
 }
 
+func isShellSafe(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_./-:@%+=,", r)
+}
+
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"
 	}
-	for _, r := range s {
-		safe := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_./-:@%+=,", r)
-		if !safe {
-			return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-		}
+	if strings.IndexFunc(s, func(r rune) bool { return !isShellSafe(r) }) < 0 {
+		return s
 	}
-	return s
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func renderCommand(mappings []envSecret, files []string, child []string) string {
-	parts := make([]string, 0, len(mappings)+len(child))
-	for _, m := range mappings {
-		parts = append(parts, fmt.Sprintf("%s=<secret from %s>", m.env, m.name))
-	}
-	for _, a := range child {
-		for _, name := range files {
-			a = strings.ReplaceAll(a, placeholder(name), fmt.Sprintf("<file with %s>", name))
-		}
-		parts = append(parts, shellQuote(a))
-	}
-	return strings.Join(parts, " ")
+func renderCommand(mappings []resolve.Mapping, files []string, child []string) string {
+	envParts := utils.Map(mappings, func(m resolve.Mapping) string {
+		return fmt.Sprintf("%s=<secret from %s>", m.Env, m.Name)
+	})
+	argParts := utils.Map(child, func(arg string) string {
+		return shellQuote(maskFilePlaceholders(arg, files))
+	})
+	return strings.Join(slices.Concat(envParts, argParts), " ")
 }
 
-func templateNames(templates []config.Template) []string {
-	out := make([]string, len(templates))
-	for i, t := range templates {
-		out[i] = t.Name
+func maskFilePlaceholders(arg string, files []string) string {
+	for _, name := range files {
+		arg = strings.ReplaceAll(arg, deliver.Placeholder(name), fmt.Sprintf("<file with %s>", name))
 	}
-	return out
+	return arg
 }
 
-func printPlan(cfgPath, tool string, cfg config.Config, res domain.Resolved, flags runFlags, child []string) {
+func templateName(t config.Template) string {
+	return t.Name
+}
+
+func printPlan(plan runPlan, flags runFlags, child []string) {
 	out := os.Stdout
+	res := plan.res
 	fmt.Fprintln(out, "Dry run — the command will NOT be executed.")
 	fmt.Fprintln(out)
 
-	fmt.Fprintf(out, "Config file:  %s\n", cfgPath)
-	if _, err := os.Stat(cfgPath); err != nil {
-		fmt.Fprintln(out, "              (not found — using flags only)")
-	}
-
-	fmt.Fprintf(out, "Tool:         %s\n", tool)
-	fmt.Fprintf(out, "Section:      %s\n", describeSection(cfg, tool))
-
-	keyStore := res.KeyStore
-	if keyStore == "" {
-		keyStore = "(not configured)"
-	}
-	fmt.Fprintf(out, "Key-store:    %s\n", keyStore)
-	if flags.keyStore != "" {
-		fmt.Fprintln(out, "              (from --key-store)")
-	}
-
-	mappings := sortedMappings(res.Secrets)
-	fmt.Fprintln(out)
-	if len(mappings) == 0 {
-		fmt.Fprintln(out, "Mappings:     (none configured)")
-	} else {
-		fmt.Fprintln(out, "Mappings (env ← secret):")
-		w := 0
-		for _, m := range mappings {
-			if len(m.env) > w {
-				w = len(m.env)
-			}
-		}
-		for _, m := range mappings {
-			fmt.Fprintf(out, "  %-*s ← %s\n", w, m.env, m.name)
-		}
-	}
-
-	if len(res.Stdin) > 0 {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Stdin (one line per secret, in order):")
-		for _, name := range res.Stdin {
-			fmt.Fprintf(out, "  <secret from %s>\n", name)
-		}
-		if res.StdinKeepOpen {
-			fmt.Fprintln(out, "  (stdin stays open afterwards)")
-		} else {
-			fmt.Fprintln(out, "  (stdin is closed afterwards)")
-		}
-	}
-
-	if len(res.Files) > 0 {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Files (placeholder ← secret):")
-		for _, name := range res.Files {
-			fmt.Fprintf(out, "  %s ← %s\n", placeholder(name), name)
-		}
-	}
-
-	if len(res.Templates) > 0 {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Templates (placeholder ← rendered file):")
-		for _, t := range res.Templates {
-			titles, err := domain.TemplateTitles(t.Path)
-			if err != nil {
-				fmt.Fprintf(out, "  %s ← %s  (template file not found)\n", placeholder(t.Name), t.Path)
-				continue
-			}
-			fmt.Fprintf(out, "  %s ← %s  (uses: %s)\n", placeholder(t.Name), t.Path, strings.Join(titles, ", "))
-		}
-	}
-
-	if res.Askpass != "" {
-		fmt.Fprintln(out)
-		fmt.Fprintf(out, "Askpass:      %s\n", res.Askpass)
-		reads := res.AskpassReads
-		if reads <= 0 {
-			reads = secretpipe.DefaultAskpassReads
-		}
-		fmt.Fprintf(out, "              handed out at most %d time(s)\n", reads)
-		fmt.Fprintf(out, "              %s\n", strings.Join(askpassEnv, ", "))
-	}
+	printPlanHeader(out, plan, flags)
+	printPlanMappings(out, sortedMappings(res.Secrets))
+	printPlanStdin(out, res)
+	printPlanFiles(out, res.Files)
+	printPlanTemplates(out, res.Templates)
+	printPlanAskpass(out, res)
 
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Command:")
-	fileLikeNames := append(append([]string{}, res.Files...), templateNames(res.Templates)...)
-	fmt.Fprintf(out, "  %s\n", renderCommand(mappings, fileLikeNames, child))
+	fileLikeNames := slices.Concat(res.Files, utils.Map(res.Templates, templateName))
+	fmt.Fprintf(out, "  %s\n", renderCommand(sortedMappings(res.Secrets), fileLikeNames, child))
+}
+
+func printPlanHeader(out io.Writer, plan runPlan, flags runFlags) {
+	fmt.Fprintf(out, "Config file:  %s\n", plan.cfgPath)
+	if _, err := os.Stat(plan.cfgPath); err != nil {
+		fmt.Fprintln(out, "              (not found — using flags only)")
+	}
+
+	fmt.Fprintf(out, "Tool:         %s\n", plan.tool)
+	fmt.Fprintf(out, "Section:      %s\n", describeSection(plan.cfg, plan.tool))
+
+	fmt.Fprintf(out, "Key-store:    %s\n", cmp.Or(plan.res.KeyStore, "(not configured)"))
+	if flags.keyStore != "" {
+		fmt.Fprintln(out, "              (from --key-store)")
+	}
+}
+
+func printPlanMappings(out io.Writer, mappings []resolve.Mapping) {
+	fmt.Fprintln(out)
+	if len(mappings) == 0 {
+		fmt.Fprintln(out, "Mappings:     (none configured)")
+		return
+	}
+
+	fmt.Fprintln(out, "Mappings (env ← secret):")
+	width := slices.Max(utils.Map(mappings, func(m resolve.Mapping) int { return len(m.Env) }))
+	for _, m := range mappings {
+		fmt.Fprintf(out, "  %-*s ← %s\n", width, m.Env, m.Name)
+	}
+}
+
+func printPlanStdin(out io.Writer, res resolve.Resolved) {
+	if len(res.Stdin) == 0 {
+		return
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Stdin (one line per secret, in order):")
+	for _, name := range res.Stdin {
+		fmt.Fprintf(out, "  <secret from %s>\n", name)
+	}
+	fmt.Fprintln(out, stdinAfterwards(res.StdinKeepOpen))
+}
+
+func stdinAfterwards(keepOpen bool) string {
+	if keepOpen {
+		return "  (stdin stays open afterwards)"
+	}
+	return "  (stdin is closed afterwards)"
+}
+
+func printPlanFiles(out io.Writer, files []string) {
+	if len(files) == 0 {
+		return
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Files (placeholder ← secret):")
+	for _, name := range files {
+		fmt.Fprintf(out, "  %s ← %s\n", deliver.Placeholder(name), name)
+	}
+}
+
+func printPlanTemplates(out io.Writer, templates []config.Template) {
+	if len(templates) == 0 {
+		return
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Templates (placeholder ← rendered file):")
+	for _, t := range templates {
+		fmt.Fprintf(out, "  %s ← %s  %s\n", deliver.Placeholder(t.Name), t.Path, templateUsage(t.Path))
+	}
+}
+
+func templateUsage(path string) string {
+	titles, err := tmpl.Titles(path)
+	if err != nil {
+		return "(template file not found)"
+	}
+	return "(uses: " + strings.Join(titles, ", ") + ")"
+}
+
+func printPlanAskpass(out io.Writer, res resolve.Resolved) {
+	if res.Askpass == "" {
+		return
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Askpass:      %s\n", res.Askpass)
+	fmt.Fprintf(out, "              handed out at most %d time(s)\n", secretpipe.AskpassReads(res.AskpassReads))
+	fmt.Fprintf(out, "              %s\n", strings.Join(deliver.AskpassEnv, ", "))
 }

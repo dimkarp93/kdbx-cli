@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/zalando/go-keyring"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 const (
@@ -62,14 +63,23 @@ func (s storage) forgetAll() (int, error) {
 const keyPrefix = keyringService + ":"
 
 func storeKey(keyStore string) string {
-	path := config.ExpandHome(keyStore)
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
+	return keyPrefix + resolvedPath(absPath(config.ExpandHome(keyStore)))
+}
+
+func absPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
 	}
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		path = real
+	return abs
+}
+
+func resolvedPath(path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
 	}
-	return keyPrefix + path
+	return real
 }
 
 type Cache struct {
@@ -86,13 +96,15 @@ func newCache(c *config.CacheConfig, s storage) Cache {
 	if c == nil || !c.Enabled {
 		return Cache{storage: s}
 	}
-	ttl := defaultCacheTTL
-	if c.TTL != "" {
-		if d, err := time.ParseDuration(c.TTL); err == nil && d > 0 {
-			ttl = d
-		}
+	return Cache{enabled: true, ttl: parseTTL(c.TTL), storage: s}
+}
+
+func parseTTL(value string) time.Duration {
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return defaultCacheTTL
 	}
-	return Cache{enabled: true, ttl: ttl, storage: s}
+	return d
 }
 
 func (c Cache) Enabled() bool {
@@ -165,16 +177,7 @@ func decodeEntry(raw string) entry {
 }
 
 func mergeTitles(current, added []string) []string {
-	seen := make(map[string]bool, len(current)+len(added))
-	var out []string
-	for _, title := range append(append([]string{}, current...), added...) {
-		if !seen[title] {
-			seen[title] = true
-			out = append(out, title)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return utils.SortedUnique(slices.Concat(current, added))
 }
 
 func (c Cache) Granted(keyStore string) []string {

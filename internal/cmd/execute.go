@@ -17,66 +17,71 @@ func Execute(info buildinfo.Info) {
 		os.Exit(2)
 	}
 
-	if info.Handle(args) {
+	if handleBuiltin(info, args) || runSubcommand(args) {
 		return
 	}
 
+	os.Exit(runMode(args))
+}
+
+func handleBuiltin(info buildinfo.Info, args []string) bool {
+	if info.Handle(args) {
+		return true
+	}
 	if code, ok := completionSpec.Handle(os.Stdout, os.Stderr, args); ok {
 		os.Exit(code)
 	}
+	return pathreport.New(pathEntries()...).HandlePath(os.Stdout, args)
+}
 
-	if pathreport.New(pathEntries()...).HandlePath(os.Stdout, args) {
-		return
-	}
-
-	switch args[0] {
+func runSubcommand(args []string) bool {
+	name, rest := args[0], args[1:]
+	switch name {
 	case "help", "--help", "-h", "-help":
 		usage()
-		return
 	case "config":
-		path, yes := parseConfigArgs("config", args[1:])
-		cmdConfig(path, yes)
-		return
+		cmdConfig(parseConfigArgs(name, rest))
 	case "check":
-		path, yes := parseConfigArgs("check", args[1:])
-		cmdCheck(path, yes)
-		return
+		cmdCheck(parseConfigArgs(name, rest))
 	case "show":
-		path, _ := parseConfigArgs("show", args[1:])
+		path, _ := parseConfigArgs(name, rest)
 		cmdShow(path)
-		return
 	case "forget":
-		path, _ := parseConfigArgs("forget", args[1:])
+		path, _ := parseConfigArgs(name, rest)
 		cmdForget(path)
-		return
 	case "load":
-		flags, err := parseRunFlags(args[1:])
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-		os.Exit(cmdLoad(flags))
+		os.Exit(runLoad(rest))
 	case "migrate":
-		path, from, to := parseMigrateArgs(args[1:])
-		cmdMigrate(path, from, to)
-		return
+		cmdMigrate(parseMigrateArgs(rest))
+	default:
+		return false
 	}
+	return true
+}
 
+func runLoad(args []string) int {
+	flags, err := parseRunFlags(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return cmdLoad(flags)
+}
+
+func runMode(args []string) int {
 	left, child, hasSep := splitArgs(args)
-
 	if !hasSep {
 		fmt.Fprintln(os.Stderr, "missing -- separator before the command to run")
 		usage()
-		os.Exit(2)
+		return 2
 	}
 
 	flags, err := parseRunFlags(left)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return 2
 	}
-
-	os.Exit(cmdRun(flags, child))
+	return cmdRun(flags, child)
 }
 
 func parseConfigArgs(cmd string, args []string) (string, bool) {
@@ -103,7 +108,10 @@ func parseConfigArgs(cmd string, args []string) (string, bool) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Usage:
+	fmt.Fprint(os.Stderr, usageText)
+}
+
+const usageText = `Usage:
   kdbx-cli [--config <path>] [--key-store <path>] [--secrets=name:env,...]
            [--stdin=name,...] [--stdin-keep-open] [--secret-file=name,...]
            [--template=name:path,...] [--askpass=name] [--askpass-reads=N]
@@ -181,5 +189,4 @@ Flags:
 
 The first word of <cmd> selects the config section (falling back to "default").
 Requires keepassxc-cli in PATH.
-`)
-}
+`

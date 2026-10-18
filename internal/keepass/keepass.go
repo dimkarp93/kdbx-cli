@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 type kpFile struct {
@@ -81,14 +84,17 @@ func checkEngineFile(path string) error {
 }
 
 func Run(stdinData string, args ...string) (string, error) {
-	bin := enginePath
-	if bin == "" {
-		bin = CheckEngine()
-	}
-	cmd := exec.Command(bin, args...)
+	cmd := exec.Command(engine(), args...)
 	cmd.Stdin = strings.NewReader(stdinData)
 	out, err := cmd.Output()
 	return string(out), err
+}
+
+func engine() string {
+	if enginePath != "" {
+		return enginePath
+	}
+	return CheckEngine()
 }
 
 func ParseSecrets(xmlData string) ([]Entry, error) {
@@ -96,59 +102,57 @@ func ParseSecrets(xmlData string) ([]Entry, error) {
 	if err := xml.Unmarshal([]byte(xmlData), &kpf); err != nil {
 		return nil, err
 	}
+	return groupEntries(kpf.Root.Group, nil, 0), nil
+}
 
-	var out []Entry
-	var walk func(g kpGroup, prefix []string, depth int)
-	walk = func(g kpGroup, prefix []string, depth int) {
-		cur := prefix
-		if depth > 0 {
-			cur = append(append([]string{}, prefix...), g.Name)
-		}
-		for _, e := range g.Entries {
-			var title, password string
-			for _, s := range e.Strings {
-				switch s.Key {
-				case "Title":
-					title = s.Value
-				case "Password":
-					password = s.Value
-				}
-			}
-			if title == "" {
-				continue
-			}
-			path := title
-			if len(cur) > 0 {
-				path = strings.Join(append(append([]string{}, cur...), title), "/")
-			}
-			out = append(out, Entry{Path: path, Title: title, Value: password})
-		}
-		for _, child := range g.Groups {
-			walk(child, cur, depth+1)
+func groupEntries(g kpGroup, prefix []string, depth int) []Entry {
+	path := groupPath(g, prefix, depth)
+	own := utils.Filter(utils.Map(g.Entries, func(e kpXMLEntry) Entry { return toEntry(e, path) }), hasTitle)
+	nested := utils.FlatMap(g.Groups, func(child kpGroup) []Entry { return groupEntries(child, path, depth+1) })
+	return slices.Concat(own, nested)
+}
+
+func groupPath(g kpGroup, prefix []string, depth int) []string {
+	if depth == 0 {
+		return prefix
+	}
+	return slices.Concat(prefix, []string{g.Name})
+}
+
+func toEntry(e kpXMLEntry, groups []string) Entry {
+	var title, password string
+	for _, s := range e.Strings {
+		switch s.Key {
+		case "Title":
+			title = s.Value
+		case "Password":
+			password = s.Value
 		}
 	}
-	walk(kpf.Root.Group, nil, 0)
-	return out, nil
+	return Entry{Path: strings.Join(slices.Concat(groups, []string{title}), "/"), Title: title, Value: password}
+}
+
+func hasTitle(e Entry) bool {
+	return e.Title != ""
 }
 
 func LookupSecret(entries []Entry, name string) (string, error) {
 	byPath := strings.Contains(name, "/")
-	var matches []Entry
-	for _, e := range entries {
-		if (byPath && e.Path == name) || (!byPath && e.Title == name) {
-			matches = append(matches, e)
-		}
-	}
+	matches := utils.Filter(entries, func(e Entry) bool {
+		return (byPath && e.Path == name) || (!byPath && e.Title == name)
+	})
+
 	switch len(matches) {
 	case 0:
 		return "", fmt.Errorf("secret %q not found in key-store", name)
 	case 1:
 		return matches[0].Value, nil
 	default:
-		var paths []string
-		for _, m := range matches {
-			paths = append(paths, m.Path)
-		}
-		return "", fmt.Errorf("secret %q is ambiguous, matches: %s (use full Group/Title path)", name, strings.Join(paths, ", "))
+		paths := strings.Join(utils.Map(matches, entryPath), ", ")
+		return "", fmt.Errorf("secret %q is ambiguous, matches: %s (use full Group/Title path)", name, paths)
 	}
+}
+
+func entryPath(e Entry) string {
+	return e.Path
 }

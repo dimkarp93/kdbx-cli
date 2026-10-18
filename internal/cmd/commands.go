@@ -2,83 +2,94 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/dimkarp93/kdbx-cli/internal/config"
-	"github.com/dimkarp93/kdbx-cli/internal/domain"
 	"github.com/dimkarp93/kdbx-cli/internal/keyring"
+	"github.com/dimkarp93/kdbx-cli/internal/resolve"
+	"github.com/dimkarp93/kdbx-cli/internal/store"
 	"github.com/dimkarp93/kdbx-cli/internal/term"
+	"github.com/dimkarp93/kdbx-cli/internal/tui"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 func cmdConfig(path string, assumeYes bool) {
-	if path == "" {
-		path = config.DefaultPath()
-	}
+	path = configPathOrDefault(path)
+	cfg := loadOrEmptyConfig(path)
 
-	cfg := config.Config{}
-	if c, err := config.Load(path); err == nil {
-		cfg = c
+	edit, err := editDefaultSection(cfg.Sections["default"], cfg.Cache)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tui error:", err)
+		os.Exit(1)
 	}
-	if cfg.Sections == nil {
-		cfg.Sections = map[string]config.Section{}
-	}
-	def := cfg.Sections["default"]
-	pairs := domain.MappingsFromMap(def.Secrets)
-
-	var keyStore string
-	var canceled bool
-	var newCache *config.CacheConfig
-	if term.IsInteractive() {
-		ks, ps, cc, c, err := runConfigTUI(def.KeyStore, pairs, cfg.Cache)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "tui error:", err)
-			os.Exit(1)
-		}
-		keyStore, pairs, newCache, canceled = ks, ps, cc, c
-	} else {
-		keyStore, pairs = configFallback(def.KeyStore, pairs)
-		newCache = cfg.Cache
-	}
-
-	if canceled {
+	if edit.Canceled {
 		fmt.Fprintln(os.Stderr, "Cancelled.")
 		os.Exit(1)
 	}
 
-	def.KeyStore = keyStore
-	def.Secrets = domain.MappingsToMap(pairs)
-	cfg.Sections["default"] = def
-	cfg.Cache = newCache
-
+	cfg = applyDefaultEdit(cfg, edit)
 	if err := config.Save(path, cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "cannot write config:", err)
 		os.Exit(1)
 	}
 	fmt.Println("Config saved to", path)
 
-	if keyStore != "" && len(pairs) > 0 {
+	if edit.KeyStore != "" && len(edit.Pairs) > 0 {
 		fmt.Println()
-		domain.ReconcileStores(map[string][]string{config.ExpandHome(keyStore): titlesOf(pairs)}, assumeYes, keyring.New(cfg.Cache))
+		byStore := map[string][]string{config.ExpandHome(edit.KeyStore): titlesOf(edit.Pairs)}
+		store.ReconcileStores(byStore, assumeYes, keyring.New(cfg.Cache))
 	}
 }
 
-func cmdCheck(path string, assumeYes bool) {
-	if path == "" {
-		path = config.DefaultPath()
+func loadOrEmptyConfig(path string) config.Config {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return config.Config{}
 	}
+	return cfg
+}
+
+func editDefaultSection(def config.Section, cache *config.CacheConfig) (tui.ConfigResult, error) {
+	pairs := resolve.MappingsFromMap(def.Secrets)
+	if term.IsInteractive() {
+		return tui.RunConfig(def.KeyStore, pairs, cache)
+	}
+
+	keyStore, pairs := configFallback(def.KeyStore, pairs)
+	return tui.ConfigResult{KeyStore: keyStore, Pairs: pairs, Cache: cache}, nil
+}
+
+func applyDefaultEdit(cfg config.Config, edit tui.ConfigResult) config.Config {
+	def := cfg.Sections["default"]
+	def.KeyStore = edit.KeyStore
+	def.Secrets = resolve.MappingsToMap(edit.Pairs)
+
+	sections := make(map[string]config.Section, len(cfg.Sections)+1)
+	maps.Copy(sections, cfg.Sections)
+	sections["default"] = def
+
+	cfg.Sections = sections
+	cfg.Cache = edit.Cache
+	return cfg
+}
+
+func cmdCheck(path string, assumeYes bool) {
+	path = configPathOrDefault(path)
 	cfg, err := config.Load(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cannot load config", path+":", err)
 		os.Exit(1)
 	}
-	byStore := domain.AggregateStores(cfg)
+
+	byStore := store.AggregateStores(cfg)
 	if len(byStore) == 0 {
 		fmt.Println("No secrets configured in", path)
 		return
 	}
-	domain.ReconcileStores(byStore, assumeYes, keyring.New(cfg.Cache))
+	store.ReconcileStores(byStore, assumeYes, keyring.New(cfg.Cache))
 }
 
 func cmdForget(path string) {
@@ -94,16 +105,11 @@ func cmdForget(path string) {
 	fmt.Printf("Forgot %d cached key-store password(s)\n", n)
 }
 
-func titlesOf(pairs []domain.Mapping) []string {
-	titles := make([]string, 0, len(pairs))
-	for _, p := range pairs {
-		titles = append(titles, p.Name)
-	}
-	sort.Strings(titles)
-	return titles
+func titlesOf(pairs []resolve.Mapping) []string {
+	return slices.Sorted(slices.Values(utils.Map(pairs, resolve.MappingName)))
 }
 
-func configFallback(keyStore string, pairs []domain.Mapping) (string, []domain.Mapping) {
+func configFallback(keyStore string, pairs []resolve.Mapping) (string, []resolve.Mapping) {
 	fmt.Println("Configure the default section (Enter to keep the current value).")
 	fmt.Println()
 
@@ -112,20 +118,15 @@ func configFallback(keyStore string, pairs []domain.Mapping) (string, []domain.M
 	fmt.Println()
 
 	fmt.Println("  # secrets mapping: name:env,name:env (name = entry Title in the .kdbx)")
-	spec := term.ReadWithPrefill("  secrets", formatSecrets(domain.MappingsToMap(pairs)))
+	spec := term.ReadWithPrefill("  secrets", formatSecrets(pairs))
 	m := map[string]string{}
 	if err := mergeSecretsFlag(m, spec); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	return keyStore, domain.MappingsFromMap(m)
+	return keyStore, resolve.MappingsFromMap(m)
 }
 
-func formatSecrets(envToName map[string]string) string {
-	pairs := domain.MappingsFromMap(envToName)
-	parts := make([]string, 0, len(pairs))
-	for _, p := range pairs {
-		parts = append(parts, p.Name+":"+p.Env)
-	}
-	return strings.Join(parts, ",")
+func formatSecrets(pairs []resolve.Mapping) string {
+	return strings.Join(utils.Map(pairs, func(p resolve.Mapping) string { return p.Name + ":" + p.Env }), ",")
 }

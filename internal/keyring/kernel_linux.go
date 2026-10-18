@@ -157,6 +157,7 @@ func (kernelBackend) expiresIn(key string) (time.Duration, bool) {
 	if err != nil {
 		return 0, false
 	}
+
 	prefix := fmt.Sprintf("%08x ", id)
 	for _, line := range strings.Split(string(data), "\n") {
 		if !strings.HasPrefix(line, prefix) {

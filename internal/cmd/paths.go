@@ -1,25 +1,27 @@
 package cmd
 
 import (
-	"sort"
+	"slices"
 
 	"github.com/dimkarp93/install-libs/pathreport"
 	"github.com/dimkarp93/kdbx-cli/internal/config"
+	"github.com/dimkarp93/kdbx-cli/internal/utils"
 )
 
 func pathEntries() []pathreport.Entry {
 	path := config.DefaultPath()
-	entries := []pathreport.Entry{{Name: "config", Path: path}}
+	configEntry := []pathreport.Entry{{Name: "config", Path: path}}
 	cfg, err := config.Load(path)
 	if err != nil {
-		return entries
+		return configEntry
 	}
-	names := make([]string, 0, len(cfg.Sections))
-	for name := range cfg.Sections {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+
+	return slices.Concat(configEntry, keyStoreEntries(cfg))
+}
+
+func keyStoreEntries(cfg config.Config) []pathreport.Entry {
+	var entries []pathreport.Entry
+	for _, name := range utils.SortedKeys(cfg.Sections) {
 		section := cfg.Sections[name]
 		if section.KeyStore == "" {
 			continue

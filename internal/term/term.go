@@ -22,25 +22,32 @@ func ReadWithPrefill(prompt, prefill string) string {
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
-		fmt.Printf("%s [%s]: ", prompt, prefill)
-		line, _ := stdinReader.ReadString('\n')
-		line = strings.TrimRight(line, "\r\n")
-		if line == "" {
-			return prefill
-		}
-		return line
+		return readLineWithDefault(prompt, prefill)
 	}
 	defer term.Restore(fd, oldState)
 
 	fmt.Printf("%s: %s", prompt, prefill)
-	buf := []rune(prefill)
+	return readRawLine(fd, oldState, []rune(prefill))
+}
 
+func readLineWithDefault(prompt, prefill string) string {
+	fmt.Printf("%s [%s]: ", prompt, prefill)
+	line, _ := stdinReader.ReadString('\n')
+	line = strings.TrimRight(line, "\r\n")
+	if line == "" {
+		return prefill
+	}
+	return line
+}
+
+func readRawLine(fd int, oldState *term.State, buf []rune) string {
 	one := make([]byte, 1)
 	for {
 		n, _ := os.Stdin.Read(one)
 		if n == 0 {
-			break
+			return string(buf)
 		}
+
 		b := one[0]
 		switch {
 		case b == '\r' || b == '\n':
@@ -50,19 +57,26 @@ func ReadWithPrefill(prompt, prefill string) string {
 			fmt.Print("\r\n")
 			term.Restore(fd, oldState)
 			os.Exit(1)
-		case b == 127 || b == 8:
-			if len(buf) > 0 {
-				buf = buf[:len(buf)-1]
-				fmt.Print("\b \b")
-			}
 		default:
-			if b >= 32 {
-				buf = append(buf, rune(b))
-				os.Stdout.Write([]byte{b})
-			}
+			buf = editLine(buf, b)
 		}
 	}
-	return string(buf)
+}
+
+func editLine(buf []rune, b byte) []rune {
+	switch {
+	case b == 127 || b == 8:
+		if len(buf) == 0 {
+			return buf
+		}
+		fmt.Print("\b \b")
+		return buf[:len(buf)-1]
+	case b >= 32:
+		os.Stdout.Write([]byte{b})
+		return append(buf, rune(b))
+	default:
+		return buf
+	}
 }
 
 func hasRealTerminal() bool {
@@ -99,6 +113,7 @@ func confirmYN(question string) bool {
 		return false
 	}
 	defer tty.Close()
+
 	fmt.Fprint(tty, question+" [y/N]: ")
 	reader := bufio.NewReader(tty)
 	line, _ := reader.ReadString('\n')
@@ -126,6 +141,7 @@ func ReadPassword(prompt string) (string, error) {
 	defer tty.Close()
 
 	fd := int(tty.Fd())
+
 	fmt.Fprint(tty, prompt)
 	pw, err := term.ReadPassword(fd)
 	if err != nil {

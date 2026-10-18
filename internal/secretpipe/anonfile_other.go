@@ -13,6 +13,7 @@ func createAnonFile(name string) (*os.File, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
+
 	path := filepath.Join(dir, name)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
