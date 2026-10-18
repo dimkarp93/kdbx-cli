@@ -36,7 +36,12 @@ func usageChannels(u sectionUsage) []resolve.Mapping {
 	return u.channels
 }
 func AggregateStores(cfg config.Config) map[string][]string {
-	panic("not implemented")
+	byStore := utils.GroupBy(sectionUsages(cfg), usageKeyStore)
+	out := make(map[string][]string, len(byStore))
+	for ks, group := range byStore {
+		out[ks] = utils.SortedUnique(utils.FlatMap(group, usageTitles))
+	}
+	return out
 }
 func AggregateStoreMappings(cfg config.Config) map[string][]resolve.Mapping {
 	panic("not implemented")
