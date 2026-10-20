@@ -35,6 +35,15 @@ github_install.sh dimkarp93/kdbx-cli
 curl -fsSL https://raw.githubusercontent.com/dimkarp93/install/master/install.sh | sh -s -- dimkarp93/kdbx-cli
 ```
 
+### Автодополнение в shell
+
+```sh
+kdbx-cli install-completions        # bash или zsh — по $SHELL
+kdbx-cli install-completions all
+```
+
+После `--` `Tab` дополняет запускаемую команду так, будто `kdbx-cli` и его флагов в строке нет: `kdbx-cli --secrets=token:GH_TOKEN -- git ch<Tab>` предложит то же, что `git ch<Tab>`. В bash для дополнения аргументов команды нужен пакет `bash-completion`; без него дополняются только имена команд и файлов.
+
 ## Обновление
 
 Новая версия ставится той же командой, что и при установке. Конфиг мигрировать не нужно: схема не изменилась.
@@ -46,6 +55,8 @@ kdbx-cli forget
 ```
 
 Прежние версии хранили пароль в Secret Service. Новая туда не смотрит и сама старые записи не удалит, а Secret Service хранит их на диске. `forget` стирает и их, и записи в kernel keyring.
+
+Скрипт автодополнения копируется в файл при установке — после обновления выполните `kdbx-cli install-completions` ещё раз.
 
 Что ещё может потребовать действий:
 

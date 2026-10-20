@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/dimkarp93/install-libs v0.5.0
+	github.com/dimkarp93/install-libs v0.6.0
 	github.com/dimkarp93/utils v0.1.1
 	github.com/stretchr/testify v1.12.1
 	github.com/zalando/go-keyring v0.2.8

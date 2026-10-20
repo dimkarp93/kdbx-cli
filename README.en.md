@@ -35,6 +35,15 @@ github_install.sh dimkarp93/kdbx-cli
 curl -fsSL https://raw.githubusercontent.com/dimkarp93/install/master/install.sh | sh -s -- dimkarp93/kdbx-cli
 ```
 
+### Shell completion
+
+```sh
+kdbx-cli install-completions        # bash or zsh, picked from $SHELL
+kdbx-cli install-completions all
+```
+
+After `--`, `Tab` completes the wrapped command as if `kdbx-cli` and its flags were not on the line: `kdbx-cli --secrets=token:GH_TOKEN -- git ch<Tab>` offers the same as `git ch<Tab>`. In bash, completing the command's arguments needs the `bash-completion` package; without it only command and file names are completed.
+
 ## Upgrading
 
 Install the new version with the same command as in Installation. No config migration is needed: the schema has not changed.
@@ -46,6 +55,8 @@ kdbx-cli forget
 ```
 
 Earlier versions kept the password in Secret Service. The new one never looks there and will not remove the old entries by itself, while Secret Service keeps them on disk. `forget` wipes them along with the kernel keyring entries.
+
+The completion script is copied into a file at install time, so run `kdbx-cli install-completions` again after upgrading.
 
 What else may need action:
 

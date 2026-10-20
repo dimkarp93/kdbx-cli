@@ -5,13 +5,29 @@ import (
 	"strings"
 )
 
-const bashTemplate = `{{fn}}() {
+const bashTemplate = `{{fn}}_command() {
+    if declare -F _comp_command_offset >/dev/null; then
+        _comp_command_offset "$1"
+    elif declare -F _command_offset >/dev/null; then
+        _command_offset "$1"
+    elif [ "$1" -eq "$COMP_CWORD" ]; then
+        COMPREPLY=($(compgen -c -- "${COMP_WORDS[COMP_CWORD]}"))
+    else
+        compopt -o default 2>/dev/null
+    fi
+}
+
+{{fn}}() {
     local cur line out
     local IFS=$'\n'
     cur=${COMP_WORDS[COMP_CWORD]}
     [ "$cur" = "=" ] && cur=
     COMPREPLY=()
     out=$({{bin}} ` + CompleteCommand + ` "${COMP_WORDS[@]:1:COMP_CWORD}" 2>/dev/null) || return
+    if [ "${out%%$'\n'*}" = "` + DirCommand + `" ]; then
+        {{fn}}_command $(( ${out#*$'\n'} + 1 ))
+        return
+    fi
     for line in $out; do
         case $line in
             ` + DirNone + `)
@@ -51,6 +67,12 @@ _{{bin}}() {
             ;;
         ` + DirDefault + `)
             _files
+            return
+            ;;
+        ` + DirCommand + `)
+            words=("${(@)words[lines[2]+2,-1]}")
+            (( CURRENT -= lines[2] + 1 ))
+            _normal
             return
             ;;
     esac
