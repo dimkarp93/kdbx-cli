@@ -24,8 +24,8 @@ github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w
 github.com/clipperhouse/uax29/v2 v2.5.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
 github.com/danieljoos/wincred v1.2.3 h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=
 github.com/danieljoos/wincred v1.2.3/go.mod h1:6qqX0WNrS4RzPZ1tnroDzq9kY3fu1KwE7MRLQK4X0bs=
-github.com/dimkarp93/install-libs v0.5.0 h1:S2HxfODOgCjjMrjsEwevkmsHXYV5sNOw6tA6i+7dyPY=
-github.com/dimkarp93/install-libs v0.5.0/go.mod h1:vRxTchW9exuc70jxyA0hG9JljUd1MmO7NLDd6r8w2UM=
+github.com/dimkarp93/install-libs v0.6.0 h1:vdktq5dBItEGB7A4IQx0Tk1Vj3+Yp4rGh85NfFAVKcM=
+github.com/dimkarp93/install-libs v0.6.0/go.mod h1:vRxTchW9exuc70jxyA0hG9JljUd1MmO7NLDd6r8w2UM=
 github.com/dimkarp93/utils v0.1.1 h1:E/uBd99VOa5HrA3blrD78MePEBCnZOU8ZvjH38YqKvA=
 github.com/dimkarp93/utils v0.1.1/go.mod h1:S6HY+odCOHaJiORntRK4h82PtzpXaK9lrlLCdDOVgt4=
 github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f h1:Y/CXytFA4m6baUTXGLOoWe4PQhGxaX0KpnayAqC48p4=
