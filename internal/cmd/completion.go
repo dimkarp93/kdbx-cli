@@ -48,7 +48,8 @@ var completionSpec = shellcomplete.Spec{
 		{Name: "--origin", Bool: true},
 		{Name: "--buildinfo", Bool: true},
 	},
-	Args: shellcomplete.Anything,
+	Args:             shellcomplete.Anything,
+	CommandAfterDash: true,
 	Commands: []shellcomplete.Command{
 		{Name: "config", Flags: configFlags},
 		{Name: "check", Flags: configFlags},
