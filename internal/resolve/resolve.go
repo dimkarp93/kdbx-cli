@@ -43,17 +43,33 @@ func Resolve(cfg config.Config, tool string, over Overrides) Resolved {
 }
 
 func sectionLayers(cfg config.Config, tool string) []config.Section {
-	var layers []config.Section
-	if s, ok := cfg.Sections["default"]; ok {
-		layers = append(layers, s)
+	base, hasBase := cfg.Sections["default"]
+	own, hasOwn := cfg.Sections[tool]
+	isToolSection := hasOwn && tool != "" && tool != "default"
+
+	switch {
+	case isToolSection && InheritsDefault(cfg, tool):
+		return []config.Section{base, own}
+	case isToolSection:
+		return []config.Section{own}
+	case hasBase:
+		return []config.Section{base}
+	default:
+		return nil
 	}
-	if tool == "" || tool == "default" {
-		return layers
+}
+
+func InheritsDefault(cfg config.Config, tool string) bool {
+	base, hasBase := cfg.Sections["default"]
+	own, hasOwn := cfg.Sections[tool]
+	return hasBase && hasOwn && !pointsToOtherStore(own, base)
+}
+
+func pointsToOtherStore(own, base config.Section) bool {
+	if own.KeyStore == "" || base.KeyStore == "" {
+		return false
 	}
-	if s, ok := cfg.Sections[tool]; ok {
-		layers = append(layers, s)
-	}
-	return layers
+	return config.ExpandHome(own.KeyStore) != config.ExpandHome(base.KeyStore)
 }
 
 func (r Resolved) overlay(s config.Section) Resolved {

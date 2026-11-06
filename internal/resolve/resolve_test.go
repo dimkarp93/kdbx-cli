@@ -50,6 +50,102 @@ func TestResolveFlagsOverride(t *testing.T) {
 	})
 }
 
+func ownStoreConfig(ownKeyStore string) config.Config {
+	return config.Config{Sections: map[string]config.Section{
+		"default": {
+			KeyStore:      "/common.kdbx",
+			Secrets:       map[string]string{"SHARED": "shared_title"},
+			Stdin:         []string{"stdin_title"},
+			StdinKeepOpen: true,
+			Files:         []string{"file_title"},
+			Templates:     []config.Template{{Name: "T", Path: "/t"}},
+			Askpass:       "askpass_title",
+			AskpassReads:  2,
+		},
+		"tool": {
+			KeyStore: ownKeyStore,
+			Secrets:  map[string]string{"OWN": "own_title"},
+		},
+	}}
+}
+
+func TestResolveOtherStoreSkipsDefault(t *testing.T) {
+	r := Resolve(ownStoreConfig("/other.kdbx"), "tool", Overrides{})
+
+	want := Resolved{
+		KeyStore: "/other.kdbx",
+		Secrets:  map[string]string{"OWN": "own_title"},
+	}
+	assert.Equal(t, want, r)
+}
+
+func TestResolveSameStoreKeepsDefault(t *testing.T) {
+	cases := []struct {
+		name     string
+		keyStore string
+	}{
+		{"store-not-set", ""},
+		{"same-path", "/common.kdbx"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := Resolve(ownStoreConfig(c.keyStore), "tool", Overrides{})
+
+			want := map[string]string{
+				"SHARED": "shared_title",
+				"OWN":    "own_title",
+			}
+			assert.Equal(t, want, r.Secrets)
+		})
+	}
+}
+
+func TestResolveSameStoreAfterHomeExpansionKeepsDefault(t *testing.T) {
+	t.Setenv("HOME", "/home/user")
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {
+			KeyStore: "~/common.kdbx",
+			Secrets:  map[string]string{"SHARED": "shared_title"},
+		},
+		"tool": {KeyStore: "/home/user/common.kdbx"},
+	}}
+
+	r := Resolve(cfg, "tool", Overrides{})
+
+	assert.Equal(t, map[string]string{"SHARED": "shared_title"}, r.Secrets)
+}
+
+func TestResolveDefaultWithoutStoreIsInherited(t *testing.T) {
+	cfg := config.Config{Sections: map[string]config.Section{
+		"default": {Secrets: map[string]string{"SHARED": "shared_title"}},
+		"tool":    {KeyStore: "/other.kdbx"},
+	}}
+
+	r := Resolve(cfg, "tool", Overrides{})
+
+	assert.Equal(t, map[string]string{"SHARED": "shared_title"}, r.Secrets)
+}
+
+func TestResolveKeyStoreFlagKeepsDefault(t *testing.T) {
+	flags := Overrides{KeyStore: "/from-flag.kdbx"}
+
+	r := Resolve(ownStoreConfig(""), "tool", flags)
+
+	t.Run("key-store-from-flag", func(t *testing.T) {
+		assert.Equal(t, "/from-flag.kdbx", r.KeyStore)
+	})
+	t.Run("default-secrets-kept", func(t *testing.T) {
+		assert.Contains(t, r.Secrets, "SHARED")
+	})
+}
+
+func TestConfiguredTitlesOtherStoreOmitsDefault(t *testing.T) {
+	cfg := ownStoreConfig("/other.kdbx")
+
+	assert.Equal(t, []string{"own_title"}, ConfiguredTitles(cfg, "tool"))
+}
+
 func deliveryConfig() config.Config {
 	return config.Config{Sections: map[string]config.Section{
 		"default": {KeyStore: "/s", Stdin: []string{"D1"}, Files: []string{"F1"}, Templates: []config.Template{{Name: "T1", Path: "/t1"}}, Askpass: "A1"},

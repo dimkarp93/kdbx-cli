@@ -32,8 +32,8 @@ func TestAggregateStores(t *testing.T) {
 	t.Run("default store collects inheriting sections", func(t *testing.T) {
 		assert.Equal(t, []string{"GITHUB_TOKEN", "NPM_TOKEN"}, got["/a.kdbx"])
 	})
-	t.Run("own store includes default secrets", func(t *testing.T) {
-		assert.Equal(t, []string{"AWS_KEY", "GITHUB_TOKEN"}, got["/b.kdbx"])
+	t.Run("own-store-omits-default-secrets", func(t *testing.T) {
+		assert.Equal(t, []string{"AWS_KEY"}, got["/b.kdbx"])
 	})
 }
 
@@ -78,7 +78,7 @@ func TestBuildStoreViewsMarksExistence(t *testing.T) {
 	}}
 
 	want := []StoreView{
-		{Path: missing, Exists: false, Mappings: []resolve.Mapping{{Name: "AWS_KEY", Env: "AWS"}, {Name: "GITHUB_TOKEN", Env: "GH"}}},
+		{Path: missing, Exists: false, Mappings: []resolve.Mapping{{Name: "AWS_KEY", Env: "AWS"}}},
 		{Path: existing, Exists: true, Mappings: []resolve.Mapping{{Name: "GITHUB_TOKEN", Env: "GH"}}},
 	}
 	assert.Equal(t, want, BuildStoreViews(cfg))

@@ -154,6 +154,8 @@ Every delivery channel can be set up both from a flag and from the config — th
 
 **Merging:** `default` is the base. The tool section is layered on top: it overrides `key-store` (if set) and adds/overrides secret mappings. For the example above, the `install` command gets the shared `key-store` from `default` and both secrets — `GITHUB_TOKEN` and `NPM_TOKEN`. The `--key-store` / `--secrets` flags override the result.
 
+**A section with its own store:** if a tool section sets a `key-store` that differs from the `key-store` of the `default` section, `default` is not applied to it: neither the secrets nor the other delivery channels. The entries in `default` belong to another file, so such a section describes everything the tool needs on its own. If the section has no `key-store`, or it matches `default`, or `default` has none, the sections merge as usual. The `--key-store` flag does not affect this rule: it changes only the file, and the layers stay the same.
+
 ### How a secret is looked up
 
 The "secret name" in the config is the **Title** of an entry in the `.kdbx`, and the value substituted is the **Password** field of that entry. If the store has several entries with the same Title, specify the full path `Group/Subgroup/Title`:
@@ -284,7 +286,7 @@ Channels combine within one section — `restic`, for example, can take `B2_ACCO
 
 #### Precedence
 
-The layers are applied in the order `default` → tool section → flags, by these rules:
+The layers are applied in the order `default` → tool section → flags (the `default` layer is skipped when the tool section has a different `key-store`), by these rules:
 
 | Field | How it is applied |
 | --- | --- |

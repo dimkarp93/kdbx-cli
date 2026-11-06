@@ -30,8 +30,10 @@ func describeSection(cfg config.Config, tool string) string {
 	switch {
 	case tool == "default" && hasDefault:
 		return `"default"`
-	case hasTool && hasDefault:
+	case resolve.InheritsDefault(cfg, tool):
 		return fmt.Sprintf("%q (merged over \"default\")", tool)
+	case hasTool && hasDefault:
+		return fmt.Sprintf("%q (own key-store, \"default\" not applied)", tool)
 	case hasTool:
 		return fmt.Sprintf("%q", tool)
 	case hasDefault:

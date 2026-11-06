@@ -184,6 +184,10 @@ func TestMergeSecretsFlag(t *testing.T) {
 
 func TestDescribeSection(t *testing.T) {
 	withDefault := config.Config{Sections: map[string]config.Section{"default": {}, "install": {}}}
+	withOtherStore := config.Config{Sections: map[string]config.Section{
+		"default": {KeyStore: "/common.kdbx"},
+		"tests":   {KeyStore: "/tests.kdbx"},
+	}}
 
 	cases := []struct {
 		name string
@@ -196,6 +200,10 @@ func TestDescribeSection(t *testing.T) {
 		{"default itself", withDefault, "default", `"default"`},
 		{"empty config", config.Config{}, "x", `(no section for "x" and no "default")`},
 		{"tool section only", config.Config{Sections: map[string]config.Section{"only": {}}}, "only", `"only"`},
+		{
+			"other-store", withOtherStore, "tests",
+			`"tests" (own key-store, "default" not applied)`,
+		},
 	}
 
 	for _, c := range cases {
